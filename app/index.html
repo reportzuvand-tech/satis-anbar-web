@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="az">
 <head>
-<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112413;window.ZS_APP="sa";(function(){
+<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112414;window.ZS_APP="sa";(function(){
 /* installed app (phone APK / Windows): if a newer version was downloaded with "Yenilə", run that one instead of the built-in file */
 var K="zsupd."+ZS_APP;try{var L=location;if(!(L.protocol==="file:"||window.Capacitor||(L.hostname==="localhost"&&!L.port)))return;
 if(/[?&]zsorig=1/.test(L.search)||sessionStorage.getItem(K+".off"))return;var v=+localStorage.getItem(K+".v")||0;
@@ -1893,7 +1893,7 @@ function renderLinkMap(){mainTabs("map");lmCss();if(!can("linkMap")){$("#main").
   const kindOf=s=>s.bmon||s.nrec?"bill":s.kind==="svc"||s.svc?"svc":"sale";
   const qLab=s=>{const k=kindOf(s);return k==="bill"?"Aylıq hesab"+(s.bmon?" — "+(SA_MONTHS[+String(s.bmon).slice(5,7)-1]||"")+" "+String(s.bmon).slice(0,4):""):k==="svc"?"Servis sənədi":(s.status==="accepted"||s.status==="done"||s.bill?"Satış":"Təklif")};
   /* what looks wrong — the manager opens it from here and fixes it */
-  const qBad=s=>{const B=[];if(state.over&&state.over[s.id]){const O=Object.values(state.over[s.id]);B.push(["bad","tələbdən artıq verilib: "+O.map(x=>x.name+" +"+qx(x.over)).join(", ")])}if(s.nocon)B.push(["bad","müqavilə tapılmadı"]);if(s.dup)B.push(["bad","təkrar sənəd ("+s.dup+")"]);if(s.zero&&s.status!=="draft")B.push(["warn","qiyməti yazılmayan sətir var"]);
+  const qBad=s=>{const B=[];if(state.over&&state.over[s.id]){const O=Object.values(state.over[s.id]);B.push(["bad","tələbdən artıq verilib: "+O.map(x=>x.name+" +"+qx(x.over)).join(", ")])}if(s.nocon)B.push(["bad","müqavilə tapılmadı"]);if(s.dup&&s.status==="draft"&&!s.binId&&dupLive(s))B.push(["bad","təkrar sənəd ("+s.dup+")"]);if(s.zero&&s.status!=="draft")B.push(["warn","qiyməti yazılmayan sətir var"]);
     if(s.bill==="part")B.push(["warn",s.bpct+"% hesab yazılıb — yekun qaimə gözlənilir"]);else if(s.due&&s.bill!=="inv")B.push(["warn","hesab yazılmalı"]);const c=cById[s.contractId||s.conId];if(c&&s.client&&nk(c.client)!==nk(s.client)&&!String(c.aliases||"").split(/[,;\n]/).some(a=>nk(a)===nk(s.client)))B.push(["bad","müqavilədəki müştəri adı fərqlidir"]);
     if((s.contractId||s.conId)&&!c)B.push(["bad","bağlı müqavilə silinib"]);if(s.binId&&!qById[s.binId])B.push(["bad","aylıq hesab tapılmadı"]);return B};
   const vBad=v=>{const B=[];const lk=[...new Set([v.quoteId,...(Array.isArray(v.quoteIds)?v.quoteIds:[])].filter(Boolean))],live=lk.filter(id=>qById[id]);if(v.dir==="out"&&!lk.length)B.push(["warn","satışa bağlanmayıb"]);if(v.dir==="out"&&lk.length&&!live.length)B.push(["bad","bağlı satış tapılmadı"]);if(v.dir==="out"&&live.length>1)B.push(["warn","bu qaimə "+live.length+" sənədə bağlıdır: "+live.map(id=>qById[id].no).join(", ")]);
