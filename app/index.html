@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="az">
 <head>
-<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112416;window.ZS_APP="sa";(function(){
+<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112417;window.ZS_APP="sa";(function(){
 /* installed app (phone APK / Windows): if a newer version was downloaded with "Yenilə", run that one instead of the built-in file */
 var K="zsupd."+ZS_APP;try{var L=location;if(!(L.protocol==="file:"||window.Capacitor||(L.hostname==="localhost"&&!L.port)))return;
 if(/[?&]zsorig=1/.test(L.search)||sessionStorage.getItem(K+".off"))return;var v=+localStorage.getItem(K+".v")||0;
@@ -5616,7 +5616,7 @@ const css=()=>{if(document.getElementById("jbCss"))return;const s=document.creat
 .jb-kid{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:7px 10px;margin:6px 0;border-left:5px solid #0B7A4B;border-radius:8px;background:rgba(11,122,75,.06)}
 .jb-kid.pend{border-left-color:#B5761F;background:rgba(181,118,31,.08)}.jb-kid.bad{border-left-color:#B42318}
 .jb-kid .g{flex:1;min-width:180px}.jb-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);cursor:pointer}
-.jb-row input[type=checkbox],.jb-row input[type=radio]{width:22px;height:22px;min-height:0;flex:none}.jb-big{min-height:44px;font-size:15px}`;document.head.appendChild(s)};
+.jb-row input[type=checkbox],.jb-row input[type=radio]{width:22px;height:22px;min-height:0;flex:none}.jb-big{min-height:44px;font-size:15px}.jb-fw{display:flex;align-items:stretch;gap:0}.jb-fw .jb-f{border-top-right-radius:0;border-bottom-right-radius:0;min-width:140px}.jb-h{touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;display:flex;align-items:center;padding:0 10px;font-size:20px;line-height:1;border:2px solid var(--line);border-left:0;border-radius:0 12px 12px 0;background:var(--surface);color:var(--muted,#667)}.jb-fw.drag{opacity:.55;outline:2px dashed var(--accent)}`;document.head.appendChild(s)};
 const FN=f=>{f.invs=Array.isArray(f.invs)?f.invs.slice():(f.inv?[f.inv]:[]);f.map=Object.assign({},f.map||{});f.svc=f.svc||[];f.svc.forEach(id=>{if(!f.map[id]&&f.invs.length===1)f.map[id]=f.invs[0]});return f};
 const qsAll=()=>Object.values(state.remote).filter(x=>!x.del&&!x.delAt);
 const inv=id=>(state.invoices||[]).find(x=>x.id===id&&x.dir==="out"&&!x.del)||null;
@@ -5644,7 +5644,7 @@ function render_(){mainTabs("jobs");css();if(!gate()){$("#main").innerHTML='<div
   const bound=allBoundSvc(qs);
   const takenInv=new Set();F.forEach(x=>x.invs.forEach(i=>takenInv.add(i)));
   const info=s=>[dt(s.sdate||s.date),s.site||"",AZN(saNum(s.total))].filter(Boolean).join(" · ");
-  const flHTML=`<div class="jb-fl">${F.map(x=>`<button type="button" class="jb-f${x.id===J.f?" on":""}" data-jf="${esc(x.id)}"><b>📁 ${esc(x.name)}</b><small>${x.svc.length} hesabat · ${x.invs.length} qaimə</small></button>`).join("")}</div>
+  const flHTML=`<div class="jb-fl" id="jbFl">${F.map(x=>`<div class="jb-fw" data-jw="${esc(x.id)}"><button type="button" class="jb-f${x.id===J.f?" on":""}" data-jf="${esc(x.id)}"><b>📁 ${esc(x.name)}</b><small>${x.svc.length} hesabat · ${x.invs.length} qaimə</small></button><span class="jb-h" data-jh="${esc(x.id)}" title="Sürüşdürüb yerini dəyişin">⠿</span></div>`).join("")}</div>${F.length>1?'<p class="note" style="margin:0">⠿ işarəsindən tutub sürüşdürərək qovluqların sırasını dəyişin (və ya seçili qovluqda ◀ ▶ düymələri).</p>':""}
    <div class="actions" style="align-items:center"><input id="jbNm" placeholder="Yeni qovluğun adı (məs. İQLİM — Noyabr işləri)" value="${esc(J.nm)}" style="flex:1;min-width:220px"><button class="btn pri jb-big" id="jbNew">+ Yeni qovluq</button></div>`;
   let body="";
   if(f){
@@ -5657,7 +5657,7 @@ function render_(){mainTabs("jobs");css();if(!gate()){$("#main").innerHTML='<div
         <div class="jb-kids">${ids.map(kid).join("")||'<p class="note" style="margin:4px 0">Bu qaiməyə hələ hesabat təyin olunmayıb.</p>'}</div></div>`};
     const free=f.svc.filter(id=>!f.map[id]||!invL[f.map[id]]);
     const pend=f.svc.filter(id=>byId[id]&&f.map[id]&&invL[f.map[id]]&&!isOk(id)).length;
-    body=`<div class="jb-box"><h3 style="margin:0 0 6px">📁 ${esc(f.name)} <button class="btn sm ghost" data-jren="1">Adı dəyiş</button> <button class="btn sm ghost danger" data-jdel="1">Qovluğu sil</button></h3>
+    body=`<div class="jb-box"><h3 style="margin:0 0 6px">📁 ${esc(f.name)} <button class="btn sm ghost" data-jmvl="-1" title="Sola / yuxarı">◀</button><button class="btn sm ghost" data-jmvl="1" title="Sağa / aşağı">▶</button> <button class="btn sm ghost" data-jren="1">Adı dəyiş</button> <button class="btn sm ghost danger" data-jdel="1">Qovluğu sil</button></h3>
       ${f.invs.length?f.invs.map(invBox).join(""):`<div class="jb-inv" style="border-left-color:#B5761F"><b>🧾 Qaimə hələ əlavə olunmayıb</b><small class="note">Qaimə proqrama düşəndə aşağıdan əlavə edin — hesabatlar ona bağlanacaq.</small></div>`}
       ${free.length?`<div style="margin:8px 0"><b>Qaiməsiz hesabatlar</b><div class="jb-kids">${free.map(kid).join("")}</div></div>`:""}
       <div class="actions" style="margin-top:8px"><button class="btn jb-big" id="jbAddInv">+ Qaimə əlavə et</button>${pend?`<button class="btn pri jb-big" id="jbLink">${pend} hesabatı qaiməyə bağla</button>`:""}</div>
@@ -5684,11 +5684,20 @@ function render_(){mainTabs("jobs");css();if(!gate()){$("#main").innerHTML='<div
   const rr=()=>{const y=window.scrollY;render_();window.scrollTo(0,y)};
   $("#jbNm").oninput=e=>{J.nm=e.target.value};
   $("#jbNew").onclick=()=>{const n=(J.nm||"").trim();if(!n){toast("Qovluğa ad yazın");return}const a=ld(),o={id:"jb"+Date.now().toString(36),name:n,invs:[],map:{},svc:[],at:Date.now()};a.unshift(o);sv(a);J.f=o.id;J.nm="";J.sel.clear();J.pickInv=false;J.msg="";J.tgt="";render_()};
+  const mvF=(id,d)=>{const a=ld(),i=a.findIndex(x=>x.id===id),j=i+d;if(i<0||j<0||j>=a.length)return;const t=a[i];a[i]=a[j];a[j]=t;sv(a);rr()};
+  const fl=$("#jbFl");if(fl)$$("[data-jh]").forEach(h=>{
+    h.onpointerdown=e=>{e.preventDefault();const dr=h.closest("[data-jw]");dr.classList.add("drag");
+      const mv=ev=>{ev.preventDefault();const el=document.elementFromPoint(ev.clientX,ev.clientY),w=el&&el.closest&&el.closest("[data-jw]");if(!w||w===dr||w.parentNode!==fl)return;
+        const r=w.getBoundingClientRect(),d0=dr.getBoundingClientRect();const after=d0.top<r.top-4||(Math.abs(d0.top-r.top)<=4&&d0.left<r.left);if(after)fl.insertBefore(dr,w.nextSibling);else fl.insertBefore(dr,w)};
+      const end=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",end);document.removeEventListener("pointercancel",end);dr.classList.remove("drag");
+        const ids=[...fl.querySelectorAll("[data-jw]")].map(x=>x.dataset.jw),a=ld();const o=ids.map(i=>a.find(x=>x.id===i)).filter(Boolean);a.forEach(x=>{if(!o.includes(x))o.push(x)});sv(o);render_()};
+      document.addEventListener("pointermove",mv,{passive:false});document.addEventListener("pointerup",end);document.addEventListener("pointercancel",end)}});
   $$("[data-jf]").forEach(b=>b.onclick=()=>{J.f=b.dataset.jf;J.sel.clear();J.pickInv=false;J.msg="";J.q="";J.tgt="";render_()});
   if(!f)return;
   const save=fn=>{const a=ld(),o=a.find(x=>x.id===f.id);if(o){FN(o);fn(o);delete o.inv;sv(a)}};
   const run_=async fn=>{if(J.busy)return;J.busy=true;try{await fn()}catch(e){J.msg=msgOf(e);toast(msgOf(e),7000)}J.busy=false;if(state.view==="jobs")render_()};
   const cur=()=>FN(ld().find(x=>x.id===f.id));
+  $$("[data-jmvl]").forEach(b=>b.onclick=()=>mvF(f.id,+b.dataset.jmvl));
   const ren=document.querySelector("[data-jren]");if(ren)ren.onclick=()=>{const n=prompt("Qovluğun yeni adı",f.name);if(n&&n.trim()){save(o=>o.name=n.trim());render_()}};
   const del=document.querySelector("[data-jdel]");if(del)del.onclick=()=>{if(!confirm("«"+f.name+"» qovluğu silinsin?\n\nSənədlər və artıq qurulmuş bağlantılar silinmir, yalnız qovluq aradan qalxır."))return;sv(ld().filter(x=>x.id!==f.id));J.f="";render_()};
   $$("[data-jopen]").forEach(b=>b.onclick=()=>{if(typeof INV!=="undefined")INV=null;go("invoice",b.dataset.jopen)});
