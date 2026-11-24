@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="az">
 <head>
-<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112215;window.ZS_APP="sa";(function(){
+<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112411;window.ZS_APP="sa";(function(){
 /* installed app (phone APK / Windows): if a newer version was downloaded with "Yenilə", run that one instead of the built-in file */
 var K="zsupd."+ZS_APP;try{var L=location;if(!(L.protocol==="file:"||window.Capacitor||(L.hostname==="localhost"&&!L.port)))return;
 if(/[?&]zsorig=1/.test(L.search)||sessionStorage.getItem(K+".off"))return;var v=+localStorage.getItem(K+".v")||0;
@@ -5011,6 +5011,252 @@ window.SAMISS=(function(){
     try{const _rv=renderInvoice;renderInvoice=function(){const o=_rv.apply(this,arguments);try{const v=(state.invoices||[]).find(x=>x.id===state.arg);if(v)invCard(v)}catch(e){console.log("smiss inv",e)}return o}}catch(e){}}
   return {init,goods,isMiss,list,warn,open}})();
 try{SAMISS.init()}catch(e){console.log("samiss init",e)}
+</script>
+<script>
+/* Satış və Anbar: Borclar, İnventarizasiya, Sifariş siyahısı, Aylıq xülasə, Satış faizi. Menyuda hər biri ayrıca göstərilib-gizlədilir (Ayarlar → Menyu). */
+(function(){try{
+if(window.__saX)return;window.__saX=1;
+const R2=n=>Math.round((+n||0)*100)/100;
+const NUM=v=>{const n=parseFloat(String(v==null?"":v).replace(/\s/g,"").replace(",","."));return isNaN(n)?0:n};
+const FD=iso=>{const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");return m?m[3]+"."+m[2]+"."+m[1]:""};
+const AGE=iso=>{const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");if(!m)return 0;const d=new Date(+m[1],+m[2]-1,+m[3]),n=new Date();n.setHours(0,0,0,0);return Math.max(0,Math.round((n-d)/864e5))};
+const YM=()=>today().slice(0,7);
+const ymAdd=(ym,d)=>{let [y,m]=ym.split("-").map(Number);m+=d;while(m<1){m+=12;y--}while(m>12){m-=12;y++}return y+"-"+String(m).padStart(2,"0")};
+const ymLab=ym=>{const M=["Yanvar","Fevral","Mart","Aprel","May","İyun","İyul","Avqust","Sentyabr","Oktyabr","Noyabr","Dekabr"],[y,m]=ym.split("-").map(Number);return M[m-1]+" "+y};
+const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const X={dm:YM(),cm:YM(),stk:lsGet("sa.stk",{}),stq:"",rq:"",ro:{},busy:false};
+const bar=(id,ym)=>`<div class="actions" style="align-items:center"><button class="btn sm" id="${id}P" aria-label="Əvvəlki ay">‹</button><b style="min-width:130px;text-align:center">${esc(ymLab(ym))}</b><button class="btn sm" id="${id}N" aria-label="Sonrakı ay">›</button><button class="btn sm ghost" id="${id}T">Bu ay</button></div>`;
+const bindBar=(id,get,set,redraw)=>{const a=(k,f)=>{const e=document.getElementById(id+k);if(e)e.onclick=()=>{set(f(get()));redraw()}};a("P",v=>ymAdd(v,-1));a("N",v=>ymAdd(v,1));a("T",()=>YM())};
+async function xls(name,title,head,rows){
+  try{const root=await prepareFolder();if(!await needExcelJS()){toast("Excel kitabxanası yüklənmədi (internet?)");return}
+    const wb=new ExcelJS.Workbook(),ws=wb.addWorksheet("Siyahı");ws.addRow([(state.settings&&state.settings.co?state.settings.co+" — ":"")+title+" · "+FD(today())]);ws.getRow(1).font={bold:true,size:13};
+    const h=ws.addRow(head);h.font={bold:true,color:{argb:"FFFFFFFF"}};h.eachCell(c=>{c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF123B35"}}});
+    rows.forEach(r=>ws.addRow(r));ws.columns.forEach((c,i)=>{c.width=Math.min(46,Math.max(11,...[head[i],...rows.map(r=>r[i])].map(v=>String(v==null?"":v).length+2)))});
+    await saveFile(name,new Blob([await wb.xlsx.writeBuffer()],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),"_Siyahılar",root,"_"+name)}
+  catch(e){toast("Excel faylını yaratmaq alınmadı")}}
+async function copyTxt(t,msg){
+  try{await navigator.clipboard.writeText(t);toast(msg||"Kopyalandı");return}catch(e){}
+  try{const a=document.createElement("textarea");a.value=t;a.style.cssText="position:fixed;left:-999px";document.body.appendChild(a);a.select();document.execCommand("copy");a.remove();toast(msg||"Kopyalandı")}catch(e){toast("Kopyalamaq alınmadı")}}
+const gate=k=>({debts:()=>can("setPrice")||can("admin"),stocktake:()=>can("moveStock"),reorder:()=>can("moveStock")||can("setPrice")||can("admin"),digest:()=>can("admin"),commis:()=>can("admin")})[k]();
+const NAMES={debts:["sale","Borclar"],commis:["sale","Satış faizi"],digest:["sale","Aylıq xülasə"],stocktake:["wh","İnventarizasiya"],reorder:["wh","Sifariş siyahısı"]};
+const denied=()=>{$("#main").innerHTML='<div class="locked">Bu bölmə üçün icazəniz yoxdur.</div>'};
+
+/* ===== Borclar ===== */
+function renderDebts(){mainTabs("debts");if(!gate("debts"))return denied();
+  const q=norm(X.rq||""),docs=listQuotes().filter(s=>s.due&&!s.del).map(s=>({...s,age:AGE(s.date)})).filter(s=>!q||norm([s.client,s.no,s.subj,s.billDoc].join(" ")).includes(q));
+  const G={};docs.forEach(s=>{const k=s.client||"Adsız müştəri";(G[k]=G[k]||{name:k,docs:[],sum:0,b0:0,b1:0,b2:0,old:0}).docs.push(s)});
+  const rows=Object.values(G).map(g=>{g.docs.forEach(s=>{const t=saNum(s.total);g.sum+=t;if(s.age<=30)g.b0+=t;else if(s.age<=60)g.b1+=t;else g.b2+=t;g.old=Math.max(g.old,s.age)});return g}).sort((a,b)=>b.b2-a.b2||b.sum-a.sum);
+  const tot=k=>R2(rows.reduce((a,g)=>a+g[k],0));
+  $("#main").innerHTML=`<h2 class="sec">Borclar</h2><p class="hint">Qəbul edilmiş və ya təhvil verilmiş, amma ödənişi qeyd olunmamış sənədlər. Yaş — sənəd tarixindən keçən gün. Ödənişi sənədin “Ödəniş” kartında qeyd edəndə borcdan çıxır.</p>
+   <div class="actions"><span class="chip">Cəmi borc: <b>${AZN(tot("sum"))}</b></span><span class="chip ok">0–30 gün: ${AZN(tot("b0"))}</span><span class="chip warn">31–60 gün: ${AZN(tot("b1"))}</span><span class="chip bad">60+ gün: ${AZN(tot("b2"))}</span></div>
+   <div class="toolbar"><input type="search" id="dbQ" placeholder="Axtar: müştəri, nömrə…" value="${esc(X.rq||"")}"><button class="btn" id="dbX">Excel</button><button class="btn" id="dbC">Mətn kimi kopyala</button></div>
+   ${rows.length?rows.map(g=>`<details class="card" style="padding:10px 14px;margin-bottom:8px"><summary style="cursor:pointer;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between"><b>${esc(g.name)}</b><span><b>${AZN(g.sum)}</b> <span class="note">· ${g.docs.length} sənəd · ən köhnə ${g.old} gün</span>${g.b2?' <span class="chip bad">60+</span>':g.b1?' <span class="chip warn">31–60</span>':""}</span></summary>
+     <div class="maptbl" style="margin-top:8px"><table class="ltbl"><tr><th style="text-align:left">Sənəd</th><th>Tarix</th><th>Yaş, gün</th><th>Məbləğ</th><th>Vəziyyət</th><th></th></tr>${g.docs.sort((a,b)=>b.age-a.age).map(s=>`<tr><td>${esc(s.no||"")}${s.subj?`<br><span class="note">${esc(s.subj)}</span>`:""}</td><td class="c">${esc(FD(s.date))}</td><td class="c"><span class="chip ${s.age>60?"bad":s.age>30?"warn":"ok"}">${s.age}</span></td><td class="c">${AZN(saNum(s.total))}</td><td class="c">${s.bill==="inv"?"hesab yazılıb"+(s.billDoc?" · "+esc(s.billDoc):""):s.bill==="part"?s.bpct+"% hesab":"hesab yazılmayıb"}</td><td class="c"><button class="btn sm" data-dbo="${esc(s.id)}">Aç</button></td></tr>`).join("")}</table></div></details>`).join(""):'<div class="card"><p class="note" style="margin:0">Ödəniş gözləyən sənəd yoxdur.</p></div>'}`;
+  $("#dbQ").oninput=e=>{X.rq=e.target.value;const p=e.target.selectionStart;renderDebts();const n=$("#dbQ");n.focus();try{n.setSelectionRange(p,p)}catch(x){}};
+  $$("[data-dbo]").forEach(b=>b.onclick=()=>openQuote(b.dataset.dbo));
+  const flat=()=>rows.flatMap(g=>g.docs.sort((a,b)=>b.age-a.age).map(s=>[g.name,s.no||"",FD(s.date),s.age,saNum(s.total),s.bill==="inv"?"hesab yazılıb":s.bill==="part"?s.bpct+"% hesab":"hesab yazılmayıb",s.billDoc||""]));
+  $("#dbX").onclick=()=>xls("Borclar_"+today()+".xlsx","Borclar",["Müştəri","Sənəd №","Tarix","Yaş, gün","Məbləğ, ₼","Vəziyyət","Hesab №"],flat());
+  $("#dbC").onclick=()=>copyTxt("Borclar — "+FD(today())+"\n"+rows.map(g=>g.name+": "+AZN(g.sum)+" ("+g.docs.length+" sənəd, ən köhnə "+g.old+" gün)").join("\n")+"\nCəmi: "+AZN(tot("sum")),"Borc siyahısı kopyalandı")}
+
+/* ===== İnventarizasiya ===== */
+function renderStocktake(){mainTabs("stocktake");if(!gate("stocktake"))return denied();
+  const Q=norm(X.stq||""),goods=state.items.filter(i=>!i.svc&&i.active!==false).filter(i=>!Q||norm([i.code,i.name,i.brand,i.model,i.cat].join(" ")).includes(Q)).sort((a,b)=>String(a.name).localeCompare(String(b.name),"az"));
+  const counted=state.items.filter(i=>!i.svc&&X.stk[i.id]!==undefined&&X.stk[i.id]!=="");
+  const diffs=counted.map(i=>({i,sys:stk(i.id).q,act:NUM(X.stk[i.id])})).map(x=>({...x,d:R2(x.act-x.sys)})).filter(x=>Math.abs(x.d)>1e-9);
+  $("#main").innerHTML=`<h2 class="sec">İnventarizasiya</h2><p class="hint">Anbarda saydığınız faktiki sayı yazın. Yalnız sayı yazılan mallar yoxlanılır, qalanlara toxunulmur. “Fərqləri tətbiq et” basanda hər fərq anbar hərəkəti kimi (düzəliş) yazılır, əvvəlki hərəkətlər dəyişmir.</p>
+   <div class="toolbar"><input type="search" id="skQ" placeholder="Axtar: kod, ad, marka…" value="${esc(X.stq||"")}"><button class="btn" id="skX">Excel</button></div>
+   <div class="actions"><span class="chip">Sayılıb: <b>${counted.length}</b></span><span class="chip ${diffs.length?"warn":"ok"}">Fərq: <b>${diffs.length}</b></span><button class="btn sm ghost" id="skClr">Sayımı təmizlə</button></div>
+   <div class="maptbl"><table class="ltbl"><tr><th style="text-align:left">Kod</th><th style="text-align:left">Mal</th><th>Sistemdə</th><th>Faktiki say</th><th>Fərq</th></tr>${goods.map(i=>{const sys=stk(i.id).q,v=X.stk[i.id],has=v!==undefined&&v!=="",d=has?R2(NUM(v)-sys):null;return `<tr><td>${esc(i.code||"")}</td><td>${esc(i.name||"")}</td><td class="c">${esc(qf(sys))}</td><td class="c"><input class="num" inputmode="decimal" data-sk="${esc(i.id)}" value="${has?esc(String(v)):""}" style="width:90px;min-height:34px;padding:5px 8px"></td><td class="c">${d==null?"—":Math.abs(d)<1e-9?'<span class="chip ok">0</span>':`<span class="chip ${d<0?"bad":"warn"}">${d>0?"+":""}${esc(qf(d))}</span>`}</td></tr>`}).join("")||'<tr><td colspan="5" class="note">Mal tapılmadı.</td></tr>'}</table></div>
+   <div class="card" style="margin-top:12px"><h3>Fərqləri tətbiq et</h3>${diffs.length?`<p class="note" style="margin:0">${diffs.length} malın qalığı düzəldiləcək: ${diffs.slice(0,6).map(x=>esc(x.i.name)+" ("+(x.d>0?"+":"")+qf(x.d)+")").join(", ")}${diffs.length>6?" və s.":""}.</p><label class="f"><span>Qeyd</span><input id="skN" value="İnventarizasiya ${esc(FD(today()))}"></label><div class="actions"><button class="btn pri" id="skGo">Fərqləri tətbiq et</button></div><p class="note" id="skMsg" style="margin:0"></p>`:'<p class="note" style="margin:0">Fərq yoxdur və ya hələ say yazılmayıb.</p>'}</div>`;
+  $("#skQ").oninput=e=>{X.stq=e.target.value;const p=e.target.selectionStart;renderStocktake();const n=$("#skQ");n.focus();try{n.setSelectionRange(p,p)}catch(x){}};
+  $$("[data-sk]").forEach(i=>i.onchange=()=>{const v=i.value.trim();if(v==="")delete X.stk[i.dataset.sk];else X.stk[i.dataset.sk]=v;lsSet("sa.stk",X.stk);const y=window.scrollY;renderStocktake();window.scrollTo(0,y)});
+  $("#skClr").onclick=()=>{X.stk={};lsSet("sa.stk",{});renderStocktake()};
+  $("#skX").onclick=()=>xls("Inventarizasiya_"+today()+".xlsx","İnventarizasiya",["Kod","Mal","Sistemdə","Faktiki","Fərq"],goods.map(i=>{const sys=stk(i.id).q,v=X.stk[i.id],has=v!==undefined&&v!=="";return [i.code||"",i.name||"",sys,has?NUM(v):"",has?R2(NUM(v)-sys):""]}));
+  const go=$("#skGo");if(go)go.onclick=()=>{if(X.busy)return;if(go.dataset.sure!=="1"){go.dataset.sure="1";go.textContent="Əminsiniz? Təsdiq üçün yenidən basın";return}
+    const lines=diffs.map(x=>({itemId:x.i.id,qty:x.d})),note=($("#skN").value||"İnventarizasiya").trim();X.busy=true;
+    const err=localAddMoves({kind:"adj",lines,note,date:today()},"İnventarizasiya düzəlişi");X.busy=false;
+    if(err){$("#skMsg").textContent=typeof err==="string"?err:"Alınmadı";toast(typeof err==="string"?err:"Alınmadı");return}
+    diffs.forEach(x=>{delete X.stk[x.i.id]});lsSet("sa.stk",X.stk);toast("Qalıqlar düzəldildi: "+lines.length+" mal");renderStocktake()}}
+
+/* ===== Sifariş siyahısı ===== */
+function renderReorder(){mainTabs("reorder");if(!gate("reorder"))return denied();
+  const low=state.items.filter(i=>!i.svc&&i.active!==false&&saNum(i.min)>0&&stk(i.id).a<saNum(i.min)).sort((a,b)=>String(a.brand||"").localeCompare(String(b.brand||""),"az")||String(a.name).localeCompare(String(b.name),"az"));
+  low.forEach(i=>{if(X.ro[i.id]===undefined)X.ro[i.id]={on:true,qty:R2(Math.max(1,saNum(i.min)-stk(i.id).a))}});
+  const sc=can("seeCost"),sel=low.filter(i=>X.ro[i.id]&&X.ro[i.id].on);
+  $("#main").innerHTML=`<h2 class="sec">Sifariş siyahısı</h2><p class="hint">Mövcud qalığı (qalıq − rezerv) minimumdan aşağı olan mallar. Miqdarı dəyişin, lazım olmayanı çıxarın, siyahını təchizatçıya göndərin. Minimum qalığı mal kartında təyin edirsiniz.</p>
+   ${low.length?`<div class="maptbl"><table class="ltbl"><tr><th></th><th style="text-align:left">Kod</th><th style="text-align:left">Mal</th><th>Marka</th><th>Mövcud</th><th>Minimum</th><th>Sifariş miqdarı</th>${sc?"<th>Son alış qiyməti</th>":""}</tr>${low.map(i=>{const o=X.ro[i.id];return `<tr><td class="c"><input type="checkbox" data-ro="${esc(i.id)}" ${o.on?"checked":""} aria-label="Siyahıya daxil et"></td><td>${esc(i.code||"")}</td><td>${esc(i.name||"")}</td><td class="c">${esc(i.brand||"—")}</td><td class="c">${esc(qf(stk(i.id).a))}</td><td class="c">${esc(qf(saNum(i.min)))}</td><td class="c"><input class="num" inputmode="decimal" data-rq="${esc(i.id)}" value="${esc(String(o.qty))}" style="width:80px;min-height:34px;padding:5px 8px"></td>${sc?`<td class="c">${saNum(i.cost)?AZN(saNum(i.cost)):"—"}</td>`:""}</tr>`}).join("")}</table></div>
+   ${sc?`<p class="note">Təxmini cəm: <b>${AZN(R2(sel.reduce((a,i)=>a+X.ro[i.id].qty*saNum(i.cost),0)))}</b> (son alış qiymətləri ilə)</p>`:""}
+   <div class="actions"><button class="btn" id="roX">Excel</button><button class="btn pri" id="roC">Mətn kimi kopyala (WhatsApp / e-poçt)</button></div>`:'<div class="card"><p class="note" style="margin:0">Minimum qalığın altında mal yoxdur. Minimum qalıq mal kartında yazılanda siyahı burada görünür.</p></div>'}`;
+  $$("[data-ro]").forEach(c=>c.onchange=()=>{X.ro[c.dataset.ro].on=c.checked;renderReorder()});
+  $$("[data-rq]").forEach(i=>i.onchange=()=>{X.ro[i.dataset.rq].qty=Math.max(0,R2(NUM(i.value)));renderReorder()});
+  const rows=()=>sel.filter(i=>X.ro[i.id].qty>0).map(i=>[i.code||"",i.name||"",i.brand||"",X.ro[i.id].qty,...(sc?[saNum(i.cost)||""]:[])]);
+  const bx=$("#roX");if(bx)bx.onclick=()=>{const r=rows();if(!r.length){toast("Siyahı boşdur");return}xls("Sifaris_siyahisi_"+today()+".xlsx","Sifariş siyahısı",["Kod","Mal","Marka","Miqdar",...(sc?["Son alış qiyməti"]:[])],r)};
+  const bc=$("#roC");if(bc)bc.onclick=()=>{const r=rows();if(!r.length){toast("Siyahı boşdur");return}copyTxt("Sifariş siyahısı — "+FD(today())+"\n"+r.map((x,k)=>(k+1)+". "+(x[0]?x[0]+" — ":"")+x[1]+(x[2]?" ("+x[2]+")":"")+" — "+qf(x[3])+" ədəd").join("\n"),"Sifariş siyahısı kopyalandı")}}
+
+/* ===== Aylıq xülasə ===== */
+function digestData(ym){
+  const all=listQuotes().filter(s=>!s.del&&String(s.date||"").slice(0,7)===ym);
+  const by=st=>all.filter(s=>st.includes(s.status)),sum=a=>R2(a.reduce((x,s)=>x+saNum(s.total),0));
+  const sold=by(["accepted","done"]),paid=sold.filter(s=>s.bill==="paid"),due=listQuotes().filter(s=>s.due&&!s.del);
+  const sellers={};sold.forEach(s=>{const k=s.author||s.by||"—",o=sellers[k]=sellers[k]||{n:0,t:0};o.n++;o.t+=saNum(s.total)});
+  const clients={};sold.forEach(s=>{const k=s.client||"Adsız",o=clients[k]=clients[k]||{n:0,t:0};o.n++;o.t+=saNum(s.total)});
+  const exp=Array.isArray(state.expenses)?state.expenses.filter(x=>String(x.date||"").slice(0,7)===ym&&!x.del):null;
+  return {all,sold,paid,due,sellers:Object.entries(sellers).sort((a,b)=>b[1].t-a[1].t),clients:Object.entries(clients).sort((a,b)=>b[1].t-a[1].t).slice(0,5),
+    cnt:{draft:by(["draft"]).length,sent:by(["sent"]).length,acc:sold.length,rej:by(["rejected"]).length},soldSum:sum(sold),paidSum:sum(paid),dueSum:sum(due),dueN:due.length,old:due.filter(s=>AGE(s.date)>60).length,low:lowCount(),
+    exp:exp?R2(exp.reduce((a,x)=>a+saNum(x.amount),0)):null,conv:all.length?Math.round(sold.length/all.length*100):0}}
+function renderDigest(){mainTabs("digest");if(!gate("digest"))return denied();
+  const d=digestData(X.dm),txt=()=>"Satış və Anbar — "+ymLab(X.dm)+"\nTəklif: "+d.all.length+" (qəbul "+d.cnt.acc+", imtina "+d.cnt.rej+", gözləyən "+(d.cnt.draft+d.cnt.sent)+")\nSatış (qəbul/təhvil): "+AZN(d.soldSum)+"\nOnlardan ödənilib: "+AZN(d.paidSum)+"\nÜmumi açıq borc: "+AZN(d.dueSum)+" ("+d.dueN+" sənəd, 60+ gün: "+d.old+")\nMinimumdan aşağı mal: "+d.low+(d.exp!=null?"\nXərclər: "+AZN(d.exp):"")+"\n"+d.sellers.map(([k,o])=>k+": "+AZN(R2(o.t))+" ("+o.n+")").join("\n");
+  const kp=(l,v,c)=>`<div class="card" style="padding:10px 14px;gap:2px"><span class="note">${l}</span><b style="font-size:18px">${v}</b>${c?`<span class="note">${c}</span>`:""}</div>`;
+  $("#main").innerHTML=`<h2 class="sec">Aylıq xülasə</h2>${bar("dgM",X.dm)}
+   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:10px 0">${kp("Təkliflər",d.all.length,"qəbul olunan: "+d.cnt.acc+" · uğur "+d.conv+"%")}${kp("Satış",AZN(d.soldSum),"qəbul və təhvil verilmiş")}${kp("Ödənilib",AZN(d.paidSum),"satışdan")}${kp("Açıq borc",AZN(d.dueSum),d.dueN+" sənəd"+(d.old?" · 60+ gün: "+d.old:""))}${kp("Minimumdan aşağı",d.low+" mal","sifariş siyahısına baxın")}${d.exp!=null?kp("Xərclər",AZN(d.exp),"bu ay qeyd olunan"):""}</div>
+   ${d.exp==null&&can("expense")?'<p class="note">Xərc məlumatı üçün “Xərclər” bölməsini bir dəfə açın, sonra burada görünəcək.</p>':""}
+   <div class="card"><h3>Satıcılar üzrə</h3>${d.sellers.length?`<div class="maptbl"><table class="ltbl"><tr><th style="text-align:left">Ad</th><th>Sənəd</th><th>Satış</th></tr>${d.sellers.map(([k,o])=>`<tr><td>${esc(k)}</td><td class="c">${o.n}</td><td class="c">${AZN(R2(o.t))}</td></tr>`).join("")}</table></div>`:'<p class="note" style="margin:0">Bu ay satış yoxdur.</p>'}</div>
+   <div class="card"><h3>Ən çox satış edilən müştərilər</h3>${d.clients.length?`<div class="maptbl"><table class="ltbl"><tr><th style="text-align:left">Müştəri</th><th>Sənəd</th><th>Məbləğ</th></tr>${d.clients.map(([k,o])=>`<tr><td>${esc(k)}</td><td class="c">${o.n}</td><td class="c">${AZN(R2(o.t))}</td></tr>`).join("")}</table></div>`:'<p class="note" style="margin:0">Məlumat yoxdur.</p>'}</div>
+   <div class="actions"><button class="btn pri" id="dgC">Xülasəni kopyala</button></div>`;
+  bindBar("dgM",()=>X.dm,v=>X.dm=v,renderDigest);$("#dgC").onclick=()=>copyTxt(txt(),"Xülasə kopyalandı")}
+
+/* ===== Satış faizi ===== */
+function renderCommis(){mainTabs("commis");if(!gate("commis"))return denied();
+  const CP=lsGet("sa.comm",{}),paidOnly=lsGet("sa.commPaid",false),net=lsGet("sa.commNet",true);
+  const docs=listQuotes().filter(s=>!s.del&&["accepted","done"].includes(s.status)&&String(s.date||"").slice(0,7)===X.cm&&(!paidOnly||s.bill==="paid"));
+  const S={};docs.forEach(s=>{const k=s.author||s.by||"—",o=S[k]=S[k]||{n:0,t:0};o.n++;o.t+=saNum(net?s.net:s.total)});
+  const rows=Object.entries(S).map(([k,o])=>({k,n:o.n,t:R2(o.t),p:NUM(CP[k]),c:R2(o.t*NUM(CP[k])/100)})).sort((a,b)=>b.t-a.t),tc=R2(rows.reduce((a,r)=>a+r.c,0));
+  $("#main").innerHTML=`<h2 class="sec">Satış faizi</h2><p class="hint">Hər satıcının (təklifi hazırlayanın) bu ay qəbul edilmiş və ya təhvil verilmiş satışları. Faiz hər adam üçün bir dəfə yazılır və bu cihazda yadda qalır. Maaş üçün məbləği UPS Servis proqramında <b>Maaş hesablaması → Avans, cərimə, əlavə</b> bölməsində “Satış məbləği” kimi yazın, faizi orada da təyin edin.</p>${bar("cmM",X.cm)}
+   <div class="actions"><label class="chk" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="cmNet" ${net?"checked":""}> ƏDV-siz məbləğ</label><label class="chk" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="cmPaid" ${paidOnly?"checked":""}> yalnız ödənilmiş satışlar</label></div>
+   <div class="maptbl"><table class="ltbl"><tr><th style="text-align:left">Satıcı</th><th>Sənəd</th><th>Satış məbləği</th><th>Faiz, %</th><th>Faiz məbləği</th></tr>${rows.length?rows.map(r=>`<tr><td>${esc(r.k)}</td><td class="c">${r.n}</td><td class="c">${AZN(r.t)}</td><td class="c"><input class="num" inputmode="decimal" data-cp="${esc(r.k)}" value="${r.p||""}" placeholder="0" style="width:70px;min-height:34px;padding:5px 8px"></td><td class="c"><b>${r.c?AZN(r.c):"—"}</b></td></tr>`).join("")+`<tr><td colspan="4" style="text-align:right"><b>Cəmi</b></td><td class="c"><b>${AZN(tc)}</b></td></tr>`:'<tr><td colspan="5" class="note">Bu ay satış yoxdur.</td></tr>'}</table></div>
+   <div class="actions"><button class="btn" id="cmX">Excel</button><button class="btn" id="cmC">Mətn kimi kopyala</button></div>`;
+  bindBar("cmM",()=>X.cm,v=>X.cm=v,renderCommis);
+  $("#cmNet").onchange=e=>{lsSet("sa.commNet",e.target.checked);renderCommis()};$("#cmPaid").onchange=e=>{lsSet("sa.commPaid",e.target.checked);renderCommis()};
+  $$("[data-cp]").forEach(i=>i.onchange=()=>{const c=lsGet("sa.comm",{});c[i.dataset.cp]=Math.min(100,Math.max(0,NUM(i.value)));lsSet("sa.comm",c);renderCommis()});
+  $("#cmX").onclick=()=>xls("Satis_faizi_"+X.cm+".xlsx","Satış faizi — "+ymLab(X.cm),["Satıcı","Sənəd","Satış məbləği","Faiz, %","Faiz məbləği"],rows.map(r=>[r.k,r.n,r.t,r.p,r.c]));
+  $("#cmC").onclick=()=>copyTxt("Satış faizi — "+ymLab(X.cm)+"\n"+rows.map(r=>r.k+": satış "+AZN(r.t)+", "+r.p+"% = "+AZN(r.c)).join("\n"),"Kopyalandı")}
+
+/* ===== menyu və səhifə qoşulması ===== */
+const PG={debts:renderDebts,stocktake:renderStocktake,reorder:renderReorder,digest:renderDigest,commis:renderCommis};
+const _gs=grpSubs;
+grpSubs=function(raw){
+  const R=_gs.call(this,true);
+  Object.keys(NAMES).forEach(k=>{let ok=false;try{ok=gate(k)}catch(e){}if(!ok)return;const [g,l]=NAMES[k],e=R.find(x=>x[0]===g);if(e&&!e[1].some(x=>x[0]===k))e[1].push([k,l])});
+  if(raw)return R;
+  const M=MENU.get();if(M.ord.length)R.sort((a,b)=>{const i=M.ord.indexOf(a[0]),j=M.ord.indexOf(b[0]);return (i<0?99:i)-(j<0?99:j)});
+  const F=R.filter(([g])=>!M.hide.has("g:"+g)).map(([g,L])=>[g,L.filter(x=>!M.hide.has(x[0]))]).filter(([g,L])=>L.length);return F.length?F:R};
+const _rn=render;render=function(){const f=PG[state.view];if(f){header();return f()}return _rn.apply(this,arguments)};
+window.saXPages=PG;
+}catch(e){console.log("sa-x",e)}})();
+
+/* Satış və Anbar: gömrük (xaricdən idxal) illik hesabatı PDF-indən malları anbara daxil etmək. Menyuda "Gömrük idxalı" kimi ayrıca göstərilib-gizlədilir. */
+(function(){try{
+if(window.__saGb)return;window.__saGb=1;
+const R2=n=>Math.round((+n||0)*100)/100;
+const NUM=v=>{const n=parseFloat(String(v==null?"":v).replace(/\s/g,"").replace(",","."));return isNaN(n)?0:n};
+const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const G={rows:null,rate:lsGet("sa.gbRate",1.7),done:lsGet("sa.gbDone",{}),busy:false,msg:"",file:""};
+const gate=()=>can("moveStock");
+const iso=d=>{const m=/^(\d\d)\.(\d\d)\.(\d{4})$/.exec(d||"");return m?m[3]+"-"+m[2]+"-"+m[1]:today()};
+const NZ=s=>String(s==null?"":s).normalize("NFKC").toLowerCase().replace(/ə/g,"e").replace(/ı/g,"i").replace(/ö/g,"o").replace(/ü/g,"u").replace(/ş/g,"s").replace(/ç/g,"c").replace(/ğ/g,"g").replace(/i̇/g,"i").replace(/[^a-z0-9]+/g," ").trim();
+
+/* ---- PDF → sətirlər ---- */
+async function readPdf(file){
+  const L=await needPdfLib();if(!L)throw new Error("PDF kitabxanası yüklənmədi (internet?)");
+  const doc=await L.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise,decl=[];
+  for(let pn=1;pn<=doc.numPages;pn++){
+    const pg=await doc.getPage(pn),tc=await pg.getTextContent(),rot=((pg.rotate||0)%360+360)%360;
+    /* səhifə fırlana bilər: sətir oxu / sütun oxu */
+    const P=it=>{const x=it.transform[4],y=it.transform[5];return rot===90?{r:x,c:y}:rot===270?{r:-x,c:-y}:rot===180?{r:y,c:-x}:{r:-y,c:x}};
+    const its=tc.items.map(it=>({s:String(it.str).trim(),...P(it)})).filter(o=>o.s&&!/^(Malın adı|Malın kodu|Xarici|tərəfdaş|CƏMİ:?)$/.test(o.s));
+    const anchors=its.filter(o=>/^\d{12,16}$/.test(o.s)).sort((a,b)=>a.r-b.r);if(!anchors.length)continue;
+    const colGB=anchors[0].c,tol=3;
+    const descAll=[];
+    const rowsInfo=anchors.map(a=>{const band=its.filter(o=>Math.abs(o.r-a.r)<tol&&o!==a).sort((x,y)=>x.c-y.c);
+      const dt=band.find(o=>/^\d\d\.\d\d\.\d{4}$/.test(o.s)),cd=band.find(o=>/^\d{10}$/.test(o.s));if(!dt||!cd)return null;
+      const after=band.filter(o=>o.c>cd.c+5).map(o=>o.s).join(" "),m=/^([\d.,]+)\s*([^\d\s.,]+)?\s*(.*)$/.exec(after)||[];
+      const nums=(m[3]||"").split(/\s+/).filter(Boolean).map(NUM);while(nums.length<7)nums.unshift(0);const n7=nums.slice(-7);
+      const rj=band.find(o=>/^\d{6}$/.test(o.s));const supC=rj?rj.c+40:dt.c+85;const sup="";
+      return {a,supC,gb:a.s,date:dt.s,code:cd.s,qty:NUM(m[1]),unit:(m[2]||"").toLowerCase(),sup,net:n7[0],stat:n7[1],gom:n7[2],rus:n7[3],aks:n7[4],vat:n7[5],dig:n7[6],descCol:cd.c,lines:[]}}).filter(Boolean);
+    if(!rowsInfo.length)continue;
+    const dc=rowsInfo[0].descCol,lines=its.filter(o=>o.c>dc-95&&o.c<dc-5&&o.r>anchors[0].r-200).sort((x,y)=>x.r-y.r);
+    /* sətirləri bəyannamələrə böl: iki mərkəz arasında ən böyük boşluq */
+    const cuts=[-1e9];
+    for(let i=0;i<rowsInfo.length-1;i++){const lo=rowsInfo[i].a.r-2,hi=rowsInfo[i+1].a.r+2,seg=lines.filter(o=>o.r>=lo&&o.r<=hi);let best=(rowsInfo[i].a.r+rowsInfo[i+1].a.r)/2,bg=-1;
+      for(let k=0;k<seg.length-1;k++){const g=seg[k+1].r-seg[k].r;if(g>bg){bg=g;best=(seg[k].r+seg[k+1].r)/2}}cuts.push(best)}
+    cuts.push(1e9);
+    const supLines=its.filter(o=>o.c>rowsInfo[0].supC&&o.c<dc-40).sort((x,y)=>x.r-y.r||x.c-y.c);
+    rowsInfo.forEach((ri,i)=>{ri.sup=supLines.filter(o=>o.r>cuts[i]&&o.r<=cuts[i+1]).map(o=>o.s).join(" ").replace(/\s+/g," ").trim();ri.text=lines.filter(o=>o.r>cuts[i]&&o.r<=cuts[i+1]).map(o=>o.s).join(" ").replace(/\s+/g," ").trim();decl.push(ri)})}
+  return decl}
+
+/* ---- təsvirdən mal sətirləri ---- */
+const HEAD=/^(?:statik\s+d[əe]yişdiricil[əe]r|yüksək\s+güclü\s+fasil[əe]siz\s+qida\s+m[əe]nb[əe]yi|fasil[əe]siz\s+qida\s+m[əe]nb[əe]yi|upsl[əe]r)\s*:?\s*/i;
+const cleanName=s=>{s=String(s).replace(/\s+/g," ").trim();
+  let code="";const am=/Artikul\s*\(Model\)\s*kodu\s*:\s*(.*?)\s*Malın adı\s*:\s*(.*)$/i.exec(s);if(am){code=am[1].trim();s=am[2]}
+  s=s.replace(/Malın adı\s*:/ig,"").replace(/\bSayı\s*:?\s*$/i,"").trim();
+  const nm=[...s.matchAll(/(?:^|\s)(\d{1,2})\.\s*(?=[A-Za-z])/g)];if(nm.length){const l=nm[nm.length-1];s=s.slice(l.index+l[0].length)}
+  else{s=s.replace(/^[\s:;,.\-—–]+/,"");for(let k=0;k<3;k++){const n=s.replace(HEAD,"");if(n===s)break;s=n}
+    const ix=s.indexOf(":");if(ix>0&&ix<50&&s.length-ix>8){const pre=s.slice(0,ix);if(!/\d/.test(pre)&&pre.trim().split(" ").length>=2)s=s.slice(ix+1).trim()}}
+  s=s.replace(/^[\s:;,.\-—–]+|[\s:;,.\-—–]+$/g,"");
+  if(s.length>70){const w=s.split(" ");let k=w.length;while(k>0&&/^[\x20-\x7E]+$/.test(w[k-1]))k--;if(w.length-k>=2)s=w.slice(k).join(" ")}
+  s=s.replace(/^[\s:;,.\-—–]+|[\s:;,.\-—–]+$/g,"");return code?s+" ("+code+")":s};
+function splitLines(d){
+  const t=d.text,out=[],re=/(\d+(?:[.,]\d+)?)\s*(?:ədəd|əd)(?![a-zəöüçşğıi])/gi;let m,pos=0;
+  while((m=re.exec(t))){const seg=t.slice(pos,m.index);pos=m.index+m[0].length;const nm=cleanName(seg);if(nm&&NUM(m[1])>0)out.push({name:nm,qty:NUM(m[1])})}
+  if(!out.length)out.push({name:cleanName(t.replace(/\s*[İI]NVOYS.*$/i,"")),qty:/^(əd|ədəd)/.test(d.unit)&&d.qty>0?d.qty:1});
+  return out.filter(x=>x.name&&x.qty>0)}
+
+/* ---- mallarla uyğunlaşdırma ---- */
+function bestMatch(name){const tk=NZ(name).split(" ").filter(w=>w.length>1),goods=state.items.filter(i=>!i.svc&&i.active!==false);if(!tk.length)return "";
+  let best="",bs=0;goods.forEach(i=>{const h=" "+NZ([i.code,i.name,i.model].join(" "))+" ";let hit=0,bad=false;tk.forEach(w=>{const ok=h.includes(" "+w+" ")||(w.length>3&&h.includes(w));if(ok)hit++;else if(/\d/.test(w))bad=true});const s=bad?0:hit/tk.length;if(s>bs){bs=s;best=i.id}});
+  return bs>=0.8?best:""}
+
+function build(decl){const rate=G.rate,rows=[];
+  decl.forEach(d=>{const parts=splitLines(d),kv=p=>{const m=/(\d+(?:[.,]\d+)?)\s*kva/i.exec(p.name);return m?NUM(m[1]):0},byK=parts.length>1&&parts.every(p=>kv(p)>0),W=p=>p.qty*(byK?kv(p):1),tq=parts.reduce((a,x)=>a+W(x),0)||1,custom=d.gom+d.rus+d.aks+d.dig;
+    const done=!!G.done[d.gb]||((state.moves||[]).some(m=>m.kind==="in"&&String(m.doc||"").includes(d.gb)));
+    parts.forEach((p,k)=>{const sh=W(p)/tq,total=R2((d.stat*rate+custom)*sh);
+      rows.push({gb:d.gb,date:d.date,sup:d.sup,code:d.code,name:p.name,qty:p.qty,cost:R2(total/p.qty),match:bestMatch(p.name),on:!done,done,first:k===0,info:{stat:d.stat,custom:R2(custom),vat:d.vat,n:parts.length}})})});
+  return rows}
+function rebuildCosts(){/* məzənnə dəyişəndə maya dəyərləri yenidən hesablanır */
+  if(!G.decl)return;const keep=G.rows;const fresh=build(G.decl);fresh.forEach((r,i)=>{const o=keep[i];if(o){r.name=o.name;r.qty=o.qty;r.match=o.match;r.on=o.on}});G.rows=fresh}
+
+/* ---- səhifə ---- */
+function renderGb(){mainTabs("customs");if(!gate()){$("#main").innerHTML='<div class="locked">Bu bölmə üçün icazəniz yoxdur.</div>';return}
+  const R=G.rows,goods=state.items.filter(i=>!i.svc&&i.active!==false).sort((a,b)=>String(a.name).localeCompare(String(b.name),"az")),sc=can("seeCost");
+  const opts=sel=>'<option value="">➕ Yeni mal yarat</option>'+goods.map(i=>`<option value="${esc(i.id)}" ${sel===i.id?"selected":""}>${esc((i.code?i.code+" · ":"")+i.name)}</option>`).join("");
+  const groups=[];if(R)R.forEach((r,i)=>{let g=groups[groups.length-1];if(!g||g.gb!==r.gb){g={gb:r.gb,date:r.date,sup:r.sup,info:r.info,done:r.done,items:[]};groups.push(g)}g.items.push([r,i])});
+  const sel=R?R.filter(r=>r.on):[];
+  $("#main").innerHTML=`<h2 class="sec">Gömrük idxalı</h2><p class="hint">e-gömrük (Dövlət Gömrük Komitəsi) saytından aldığınız “idxal əməliyyatları haqqında” illik hesabatın PDF faylını yükləyin. Proqram hər bəyannamədəki malları oxuyur; siz adı, sayı və maya dəyərini yoxlayıb mövcud mala bağlayır və ya yeni mal yaradırsınız, sonra hamısı mədaxil kimi anbara yazılır. Eyni bəyannamə ikinci dəfə avtomatik seçilmir.</p>
+   <div class="card"><div class="actions" style="align-items:flex-end"><label class="f"><span>Hesabat faylı (PDF)</span><input type="file" id="gbF" accept="application/pdf,.pdf"></label><label class="f" style="max-width:190px"><span>1 USD = ? AZN (maya üçün)</span><input class="num" inputmode="decimal" id="gbRate" value="${esc(String(G.rate))}"></label></div>
+   <p class="note" style="margin:6px 0 0">Eyni bəyannamədə bir neçə mal varsa dəyər sayına (hamısında kVA yazılıbsa gücə) görə bölünür. Maya dəyəri = statistik dəyər (USD) × məzənnə + gömrük yığımı + idxal rüsumu + aksiz + digər yığımlar. ƏDV maya dəyərinə daxil edilmir (ödənilmiş ƏDV sonradan hesaba salınır). Dəqiq alış qiymətini invoysdan bilirsinizsə, sütunda dəyişin.</p>${G.msg?`<p class="note" style="margin:6px 0 0;color:var(--bad,#b00020)">${esc(G.msg)}</p>`:""}${G.file?`<p class="note" style="margin:6px 0 0">Fayl: ${esc(G.file)} · ${groups.length} bəyannamə, ${R.length} mal sətri</p>`:""}</div>
+   ${R&&R.length?groups.map(g=>`<div class="card" style="padding:10px 14px"><div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between"><b>GB ${esc(g.gb)} · ${esc(g.date)}</b><span class="note">${esc(g.sup)}</span></div>
+     <p class="note" style="margin:2px 0 8px">Statistik dəyər: ${g.info.stat.toLocaleString("az")} $ · gömrük xərci: ${g.info.custom.toLocaleString("az")} ₼ · ƏDV: ${g.info.vat.toLocaleString("az")} ₼${g.done?' · <span class="chip warn">artıq anbara daxil edilib</span>':""}</p>
+     <div class="maptbl"><table class="ltbl"><tr><th></th><th style="text-align:left">Mal adı</th><th>Say</th>${sc?"<th>Maya dəyəri, ₼ (1 ədəd)</th>":""}<th style="text-align:left">Anbardakı mal</th></tr>${g.items.map(([r,i])=>`<tr><td class="c"><input type="checkbox" data-on="${i}" ${r.on?"checked":""} aria-label="Daxil et"></td><td><input data-nm="${i}" value="${esc(r.name)}" style="width:100%;min-width:220px;min-height:34px;padding:5px 8px"></td><td class="c"><input class="num" inputmode="decimal" data-q="${i}" value="${r.qty}" style="width:70px;min-height:34px;padding:5px 8px"></td>${sc?`<td class="c"><input class="num" inputmode="decimal" data-c="${i}" value="${r.cost}" style="width:100px;min-height:34px;padding:5px 8px"></td>`:""}<td><select data-m="${i}" style="min-height:34px;max-width:260px">${opts(r.match)}</select></td></tr>`).join("")}</table></div></div>`).join("")+`<div class="actions"><button class="btn pri" id="gbGo" ${sel.length?"":"disabled"}>Seçilmiş ${sel.length} sətri anbara daxil et</button></div><p class="note" id="gbMsg"></p>`:(R?'<div class="card"><p class="note" style="margin:0">Faylda idxal sətri tapılmadı. Hesabat “idxal əməliyyatları” formatında olmalıdır.</p></div>':"")}`;
+  const f=$("#gbF");f.onchange=async()=>{const fl=f.files[0];if(!fl)return;G.msg="";G.rows=null;G.file="";$("#main").querySelector(".card").insertAdjacentHTML("beforeend",'<p class="note">Oxunur…</p>');
+    try{G.decl=await readPdf(fl);G.rows=build(G.decl);G.file=fl.name;if(!G.rows.length)G.msg="PDF-də idxal sətri tapılmadı."}catch(e){G.msg=(e&&e.message)||"PDF oxunmadı";G.rows=null}renderGb()};
+  $("#gbRate").onchange=e=>{G.rate=NUM(e.target.value)||1;lsSet("sa.gbRate",G.rate);rebuildCosts();renderGb()};
+  const A=(a,fn)=>$$("["+a+"]").forEach(el=>el.onchange=()=>{fn(+el.getAttribute(a),el);const y=window.scrollY;renderGb();window.scrollTo(0,y)});
+  A("data-on",(i,el)=>G.rows[i].on=el.checked);A("data-nm",(i,el)=>G.rows[i].name=el.value.trim());A("data-q",(i,el)=>G.rows[i].qty=Math.max(0,R2(NUM(el.value))));
+  A("data-c",(i,el)=>G.rows[i].cost=Math.max(0,R2(NUM(el.value))));A("data-m",(i,el)=>{const r=G.rows[i];r.match=el.value;if(el.value){const it=state.items.find(x=>x.id===el.value);if(it&&!r.name)r.name=it.name}});
+  const go=$("#gbGo");if(go)go.onclick=()=>{if(G.busy)return;if(go.dataset.sure!=="1"){go.dataset.sure="1";go.textContent="Əminsiniz? Təsdiq üçün yenidən basın";return}
+    G.busy=true;const msg=$("#gbMsg");let nNew=0,nIn=0,err="";const byGb={};
+    for(const r of G.rows.filter(r=>r.on)){if(!r.name||r.qty<=0){err="Adı və sayı boş olan sətir var";break}
+      let id=r.match;if(!id){const e=localSaveItem({name:r.name,cost:can("seeCost")?r.cost:0,note:"Gömrük idxalı · HS "+r.code},null,true);
+        if(e){err=r.name+": "+e;break}id=localSaveItem.lastId;nNew++;r.match=id}
+      (byGb[r.gb]=byGb[r.gb]||{date:r.date,sup:r.sup,lines:[]}).lines.push({itemId:id,qty:r.qty,cost:r.cost})}
+    if(!err)for(const gb in byGb){const b=byGb[gb],e=localAddMoves({kind:"in",date:iso(b.date),doc:"GB "+gb,party:b.sup,note:"Gömrük idxalı (illik hesabat)",lines:b.lines},"Gömrük idxalı: GB "+gb);
+      if(e){err="GB "+gb+": "+e;break}G.done[gb]=1;nIn+=b.lines.length}
+    lsSet("sa.gbDone",G.done);G.busy=false;
+    if(err){G.msg=err;toast(err)}else{toast(nIn+" mal anbara daxil edildi"+(nNew?" ("+nNew+" yeni mal yaradıldı)":""));G.rows=build(G.decl);G.msg=nIn+" mal anbara daxil edildi"+(nNew?", o cümlədən "+nNew+" yeni mal":"")+"."}
+    renderGb()}}
+
+const _gs=grpSubs;
+grpSubs=function(raw){const R=_gs.call(this,true);let ok=false;try{ok=gate()}catch(e){}
+  if(ok){const e=R.find(x=>x[0]==="wh");if(e&&!e[1].some(x=>x[0]==="customs"))e[1].push(["customs","Gömrük idxalı"])}
+  if(raw)return R;
+  const M=MENU.get();if(M.ord.length)R.sort((a,b)=>{const i=M.ord.indexOf(a[0]),j=M.ord.indexOf(b[0]);return (i<0?99:i)-(j<0?99:j)});
+  const F=R.filter(([g])=>!M.hide.has("g:"+g)).map(([g,L])=>[g,L.filter(x=>!M.hide.has(x[0]))]).filter(([g,L])=>L.length);return F.length?F:R};
+const _rn=render;render=function(){if(state.view==="customs"){header();return renderGb()}return _rn.apply(this,arguments)};
+window.saGbParse=async f=>{const d=await readPdf(f);return d.map(x=>({...x,lines:splitLines(x)}))};
+}catch(e){console.log("sa-gb",e)}})();
+
 </script>
 </body>
 </html>
