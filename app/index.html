@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="az">
 <head>
-<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112412;window.ZS_APP="sa";(function(){
+<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112413;window.ZS_APP="sa";(function(){
 /* installed app (phone APK / Windows): if a newer version was downloaded with "Yenilə", run that one instead of the built-in file */
 var K="zsupd."+ZS_APP;try{var L=location;if(!(L.protocol==="file:"||window.Capacitor||(L.hostname==="localhost"&&!L.port)))return;
 if(/[?&]zsorig=1/.test(L.search)||sessionStorage.getItem(K+".off"))return;var v=+localStorage.getItem(K+".v")||0;
@@ -5516,6 +5516,81 @@ document.addEventListener("click",e=>{if(dragged&&e.target.closest&&e.target.clo
 document.addEventListener("contextmenu",e=>{if(DR&&DR.on)e.preventDefault()});
 window.saLk={scan,score,best,itemInfo,apply,relinkMoves};
 }catch(e){console.log("sa-lk",e)}})();
+
+</script>
+<script>
+/* Satış və Anbar: Vasitəçi qaiməsi — bir vasitəçi şirkətin bir neçə müştərisinin (fərqli vaxtlarda edilmiş) servis hesabatlarını seçib TEK qaiməyə bağlamaq. */
+(function(){try{
+if(window.__saVia)return;window.__saVia=1;
+const NM=s=>saNormName(s||"");
+const dt=d=>d?String(d).split("-").reverse().join("."):"";
+const rec=id=>state.local[id]||state.remote[id]||null;
+const isSvc=s=>!!s&&(s.srcT==="service"||!!(s.src&&s.src.type==="service"));
+const isBin=s=>!!s&&(!!s.bmon||!!s.nrec||s.srcT==="bill"||!!(s.src&&s.src.type==="bill"));
+const binOf=s=>(s&&(s.binId||(s.billedIn&&s.billedIn.id)))||"";
+const msgOf=e=>{try{return errMsg(e)}catch(x){return String(e&&e.message||e)}};
+const sameCl=(a,b)=>{const x=NM(a),y=NM(b);return !!x&&!!y&&(x===y||(x.length>4&&y.length>4&&(x.includes(y)||y.includes(x))))};
+const gate=()=>can("invoice")||can("svcBill")||can("linkMap");
+const V={inv:"",q:"",mon:"",all:false,sel:new Set(),iq:"",busy:false};
+const repNo=s=>(s&&((s.src&&s.src.repno)||(s.svc&&s.svc!=="servis"?s.svc:"")))||"";
+function data(){
+  const v=(state.invoices||[]).find(x=>x.id===V.inv&&x.dir==="out"&&!x.del)||null;
+  const qs=Object.values(state.remote).filter(x=>!x.del&&!x.delAt);
+  const links=v?[v.quoteId,...(Array.isArray(v.quoteIds)?v.quoteIds:[])].filter((x,i,a)=>x&&a.indexOf(x)===i).map(id=>qs.find(q=>q.id===id)).filter(Boolean):[];
+  const linked=new Set();links.forEach(q=>{if(isSvc(q))linked.add(q.id);((q.src&&q.src.recs)||[]).forEach(r=>linked.add(r));(q.reps||[]).forEach(r=>linked.add(r));qs.forEach(s=>{if(binOf(s)===q.id)linked.add(s.id)})});
+  let cand=[];
+  if(v){const cons=new Set((state.contracts||[]).filter(c=>!c.del&&(sameCl(c.client,v.supplier)||String(c.aliases||"").split(/[,;\n]/).some(a=>sameCl(a,v.supplier)))).map(c=>c.id));
+    const mine=x=>cons.has(x.contractId||x.conId)||sameCl(x.client,v.supplier);
+    cand=qs.filter(x=>isSvc(x)&&x.status!=="rejected"&&!linked.has(x.id)&&(V.all||mine(x)));
+    const Q=norm(V.q||"");if(Q)cand=cand.filter(x=>norm([x.client,x.site,x.no,repNo(x)].join(" ")).includes(Q));
+    if(V.mon)cand=cand.filter(x=>String(x.sdate||x.date||"").slice(0,7)===V.mon)}
+  return {v,links,linked,qs,cand}}
+function renderVia(){mainTabs("viainv");if(!gate()){$("#main").innerHTML='<div class="locked">Bu bölmə üçün icazəniz yoxdur.</div>';return}
+  const D=data(),v=D.v;
+  const invs=(state.invoices||[]).filter(x=>x.dir==="out"&&!x.del&&x.status!=="draft").sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const iq=norm(V.iq||""),shown=invs.filter(x=>x.id===V.inv||!iq||norm([x.no,x.supplier].join(" ")).includes(iq)).slice(0,80);
+  const G={};D.cand.forEach(s=>{const k=NM(s.client)||"—";(G[k]=G[k]||{name:s.client||"Adsız",list:[]}).list.push(s)});
+  const groups=Object.values(G).sort((a,b)=>a.name.localeCompare(b.name,"az"));
+  const months=[...new Set(D.cand.concat([]).map(s=>String(s.sdate||s.date||"").slice(0,7)).filter(Boolean))].sort().reverse();
+  const nSel=[...V.sel].filter(id=>D.cand.some(s=>s.id===id)).length;
+  const row=s=>{const bin=binOf(s),bq=bin?rec(bin):null;return `<label class="row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:5px 0;border-top:1px solid var(--line);cursor:pointer"><input type="checkbox" data-vs="${esc(s.id)}" ${V.sel.has(s.id)?"checked":""} style="width:auto;min-height:0"><span style="flex:1;min-width:200px"><b>${esc(repNo(s)?"№ "+repNo(s):s.no||"—")}</b> <small class="note">${esc([dt(s.sdate||s.date),s.site||"",AZN(saNum(s.total))].filter(Boolean).join(" · "))}</small></span>${bq?`<span class="chip warn" title="Bu hesabat aylıq hesabdadır; seçsəniz oradan çıxarılıb qaiməyə bağlanacaq">hesabda: ${esc(bq.no||"")}</span>`:""}</label>`};
+  $("#main").innerHTML=`<h2 class="sec">Vasitəçi qaiməsi</h2><p class="hint">Vasitəçi şirkətin müxtəlif müştərilərinin (fərqli vaxtlarda edilmiş) servis hesabatlarını bir qaiməyə yığmaq üçün: <b>1)</b> qaiməni seçin, <b>2)</b> hesabatları işarələyin (müştəri üzrə qruplanıb, “hamısı” düyməsi var), <b>3)</b> “Qaiməyə bağla”. Qaimədə hesabatlar bir sənəddə toplanır, sonra istənilən hesabatı çıxarmaq olar.</p>
+   <div class="card"><label class="f"><span>Qaimə (nömrə və ya şirkət adı ilə axtarın)</span><input id="vaIq" type="search" placeholder="məs. MT261110168841 və ya İQLİM" value="${esc(V.iq)}"></label>
+    <label class="f"><span>Hansı qaimə?</span><select id="vaInv"><option value="">— qaiməni seçin —</option>${shown.map(x=>`<option value="${esc(x.id)}"${x.id===V.inv?" selected":""}>${esc(x.no||"—")} · ${esc(dt(x.date))} · ${esc(x.supplier||"")} · ${esc(AZN(saInvTotals(x).total))}</option>`).join("")}</select></label></div>
+   ${v?`<div class="card" style="margin-top:8px"><h3>${esc("Qaimə "+(v.no||""))} <small class="note">${esc(v.supplier||"")} · ${esc(dt(v.date))}</small></h3>
+     ${D.links.length?`<p class="note" style="margin:0 0 4px">Bu qaiməyə artıq bağlı: <b>${D.linked.size}</b> servis hesabatı (${D.links.map(q=>esc(q.no)).join(", ")}). Yeni seçdikləriniz onlara əlavə olunur.</p>`:'<p class="note" style="margin:0 0 4px">Hələ heç bir servis hesabatı bağlı deyil.</p>'}
+     <div class="actions" style="align-items:center"><input id="vaQ" type="search" placeholder="Axtar: müştəri, obyekt, hesabat №" value="${esc(V.q)}" style="flex:1;min-width:180px"><select id="vaMon" style="width:auto"><option value="">Bütün aylar</option>${months.map(m=>`<option value="${m}"${m===V.mon?" selected":""}>${m}</option>`).join("")}</select>
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="vaAll" ${V.all?"checked":""} style="width:auto;min-height:0">Bütün müştərilərin hesabatları</label></div>
+     <p class="note" style="margin:4px 0">${D.cand.length} bağlanmamış hesabat · seçilib: <b>${nSel}</b></p>
+     ${groups.length?groups.map(g=>{const ids=g.list.map(s=>s.id),all=ids.every(i=>V.sel.has(i));return `<details open class="card" style="padding:8px 12px;margin:6px 0"><summary style="cursor:pointer;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>${esc(g.name)}</b><small class="note">${g.list.length} hesabat</small><span style="flex:1"></span><button type="button" class="btn sm" data-vg="${esc(ids.join(","))}" data-von="${all?0:1}">${all?"Seçimi götür":"Hamısını seç"}</button></summary>${g.list.sort((a,b)=>String(a.sdate||a.date).localeCompare(String(b.sdate||b.date))).map(row).join("")}</details>`}).join(""):`<div class="empty"><h3>Bağlanacaq hesabat tapılmadı</h3><p>${V.all?"Axtarışı dəyişin.":"Bu şirkətin müqaviləsinə bağlı hesabat yoxdur. “Bütün müştərilərin hesabatları” işarəsini qoyub axtarın."}</p></div>`}
+     <div class="actions" style="margin-top:10px"><button class="btn pri" id="vaGo" ${nSel?"":"disabled"}>Seçilmiş ${nSel} hesabatı qaiməyə bağla</button><button class="btn" id="vaOpen">Qaiməni aç</button></div><p class="note" id="vaMsg"></p></div>`:""}`;
+  const iqI=$("#vaIq");iqI.oninput=()=>{V.iq=iqI.value;const p=iqI.selectionStart;renderVia();const n=$("#vaIq");n.focus();try{n.setSelectionRange(p,p)}catch(e){}};
+  $("#vaInv").onchange=e=>{V.inv=e.target.value;V.sel.clear();V.q="";V.mon="";renderVia()};
+  if(!v)return;
+  const qi=$("#vaQ");qi.oninput=()=>{V.q=qi.value;const p=qi.selectionStart;renderVia();const n=$("#vaQ");n.focus();try{n.setSelectionRange(p,p)}catch(e){}};
+  $("#vaMon").onchange=e=>{V.mon=e.target.value;renderVia()};$("#vaAll").onchange=e=>{V.all=e.target.checked;renderVia()};
+  $$("[data-vs]").forEach(c=>c.onchange=()=>{if(c.checked)V.sel.add(c.dataset.vs);else V.sel.delete(c.dataset.vs);const y=window.scrollY;renderVia();window.scrollTo(0,y)});
+  $$("[data-vg]").forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();b.dataset.vg.split(",").forEach(id=>{if(b.dataset.von==="1")V.sel.add(id);else V.sel.delete(id)});const y=window.scrollY;renderVia();window.scrollTo(0,y)});
+  $("#vaOpen").onclick=()=>{if(typeof INV!=="undefined")INV=null;go("invoice",v.id)};
+  $("#vaGo").onclick=async()=>{if(V.busy)return;const ids=[...V.sel].filter(id=>D.cand.some(s=>s.id===id));if(!ids.length)return;
+    if(!confirm(ids.length+" servis hesabatı qaimə "+(v.no||"")+" üzərinə bağlansın?"))return;V.busy=true;const msg=$("#vaMsg"),btn=$("#vaGo");btn.disabled=true;btn.textContent="Bağlanır…";
+    try{try{await flush()}catch(e){}
+      for(const id of ids){const s=D.cand.find(x=>x.id===id),bin=binOf(s);if(bin){msg.textContent="Aylıq hesabdan çıxarılır: "+(repNo(s)||s.no);await api("svcDetach",{quoteId:bin,recId:id})}}
+      msg.textContent="Qaiməyə bağlanır…";const has=(D.links||[]).length>0;
+      await api("billSvcInvoice",{id:v.id,recs:ids,mode:has?"add":undefined});await sync();
+      try{const L=JSON.parse(localStorage.getItem("sa.lklog")||"[]");L.unshift({at:Date.now(),by:state.me.name||"",what:"Qaimə "+(v.no||"")+" ← "+ids.length+" servis hesabatı",steps:[]});localStorage.setItem("sa.lklog",JSON.stringify(L.slice(0,120)))}catch(e){}
+      V.sel.clear();toast(ids.length+" hesabat qaiməyə bağlandı")}
+    catch(e){toast(msgOf(e),7000);msg.textContent=msgOf(e)}
+    V.busy=false;if(state.view==="viainv")renderVia()}}
+const _gs=grpSubs;
+grpSubs=function(raw){const R=_gs.call(this,true);let ok=false;try{ok=gate()}catch(e){}
+  if(ok){const e=R.find(x=>x[0]==="sale");if(e&&!e[1].some(x=>x[0]==="viainv"))e[1].push(["viainv","Vasitəçi qaiməsi"])}
+  if(raw)return R;
+  const M=MENU.get();if(M.ord.length)R.sort((a,b)=>{const i=M.ord.indexOf(a[0]),j=M.ord.indexOf(b[0]);return (i<0?99:i)-(j<0?99:j)});
+  const F=R.filter(([g])=>!M.hide.has("g:"+g)).map(([g,L])=>[g,L.filter(x=>!M.hide.has(x[0]))]).filter(([g,L])=>L.length);return F.length?F:R};
+const _rn=render;render=function(){if(state.view==="viainv"){header();return renderVia()}return _rn.apply(this,arguments)};
+window.saVia={data,V};
+}catch(e){console.log("sa-via",e)}})();
 
 </script>
 </body>
