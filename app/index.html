@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="az">
 <head>
-<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112414;window.ZS_APP="sa";(function(){
+<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112415;window.ZS_APP="sa";(function(){
 /* installed app (phone APK / Windows): if a newer version was downloaded with "Yenilə", run that one instead of the built-in file */
 var K="zsupd."+ZS_APP;try{var L=location;if(!(L.protocol==="file:"||window.Capacitor||(L.hostname==="localhost"&&!L.port)))return;
 if(/[?&]zsorig=1/.test(L.search)||sessionStorage.getItem(K+".off"))return;var v=+localStorage.getItem(K+".v")||0;
@@ -5592,6 +5592,117 @@ const _rn=render;render=function(){if(state.view==="viainv"){header();return ren
 window.saVia={data,V};
 }catch(e){console.log("sa-via",e)}})();
 
+</script>
+<script>/* Satış və Anbar: İş qovluqları — hər iş üçün qovluq yaradılır; servis hesabatları və qaimə qovluğa əlavə olunur, qovluqdakılar avtomatik bir-biri ilə əlaqələnir (sürüşdürmə yoxdur, yalnız işarələ + düymə). */
+(function(){try{
+if(window.__saJobs)return;window.__saJobs=1;
+const NM=s=>saNormName(s||"");
+const dt=d=>d?String(d).split("-").reverse().join("."):"";
+const isSvc=s=>!!s&&(s.srcT==="service"||!!(s.src&&s.src.type==="service"));
+const binOf=s=>(s&&(s.binId||(s.billedIn&&s.billedIn.id)))||"";
+const msgOf=e=>{try{return errMsg(e)}catch(x){return String(e&&e.message||e)}};
+const gate=()=>can("invoice")||can("svcBill")||can("linkMap");
+const repNo=s=>(s&&((s.src&&s.src.repno)||(s.svc&&s.svc!=="servis"?s.svc:"")))||"";
+const LSK="sa.jobs";
+const ld=()=>{try{const a=JSON.parse(localStorage.getItem(LSK)||"[]");return Array.isArray(a)?a:[]}catch(e){return[]}};
+const sv=a=>{try{localStorage.setItem(LSK,JSON.stringify(a))}catch(e){}};
+const J={f:"",q:"",iq:"",sel:new Set(),all:false,busy:false,nm:"",msg:""};
+const css=()=>{if(document.getElementById("jbCss"))return;const s=document.createElement("style");s.id="jbCss";s.textContent=`
+.jb-fl{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}.jb-f{border:2px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--surface);color:var(--ink);cursor:pointer;text-align:left;min-width:160px}
+.jb-f.on{border-color:var(--accent);background:var(--accent-soft,rgba(11,122,75,.08))}.jb-f b{display:block}.jb-f small{color:var(--muted,#667)}
+.jb-box{border:2px solid var(--accent);border-radius:14px;padding:12px;margin:8px 0;background:var(--surface)}
+.jb-inv{border-left:6px solid #C2410C;border-radius:10px;padding:8px 12px;background:rgba(194,65,12,.07);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.jb-kids{margin:0 0 0 18px;padding:4px 0 0 14px;border-left:3px dashed var(--line)}
+.jb-kid{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:7px 10px;margin:6px 0;border-left:5px solid #0B7A4B;border-radius:8px;background:rgba(11,122,75,.06)}
+.jb-kid.pend{border-left-color:#B5761F;background:rgba(181,118,31,.08)}.jb-kid.bad{border-left-color:#B42318}
+.jb-kid .g{flex:1;min-width:180px}.jb-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);cursor:pointer}
+.jb-row input[type=checkbox],.jb-row input[type=radio]{width:22px;height:22px;min-height:0;flex:none}.jb-big{min-height:44px;font-size:15px}`;document.head.appendChild(s)};
+const qsAll=()=>Object.values(state.remote).filter(x=>!x.del&&!x.delAt);
+const inv=id=>(state.invoices||[]).find(x=>x.id===id&&x.dir==="out"&&!x.del)||null;
+function invLinked(v,qs){const links=[v.quoteId,...(Array.isArray(v.quoteIds)?v.quoteIds:[])].filter((x,i,a)=>x&&a.indexOf(x)===i).map(id=>qs.find(q=>q.id===id)).filter(Boolean);
+  const s=new Set();links.forEach(q=>{if(isSvc(q))s.add(q.id);((q.src&&q.src.recs)||[]).forEach(r=>s.add(r));(q.reps||[]).forEach(r=>s.add(r));qs.forEach(x=>{if(binOf(x)===q.id)s.add(x.id)})});return {s,links}}
+const log=what=>{try{const L=JSON.parse(localStorage.getItem("sa.lklog")||"[]");L.unshift({at:Date.now(),by:(state.me&&state.me.name)||"",what,steps:[]});localStorage.setItem("sa.lklog",JSON.stringify(L.slice(0,120)))}catch(e){}};
+async function linkFolder(f){const v=inv(f.inv);if(!v)return 0;const qs=qsAll(),{s,links}=invLinked(v,qs);
+  const ids=(f.svc||[]).filter(id=>!s.has(id)&&qs.some(x=>x.id===id));if(!ids.length)return 0;
+  try{await flush()}catch(e){}
+  for(const id of ids){const x=qs.find(q=>q.id===id),bin=binOf(x);if(bin)await api("svcDetach",{quoteId:bin,recId:id})}
+  await api("billSvcInvoice",{id:v.id,recs:ids,mode:links.length?"add":undefined});await sync();
+  log("Qovluq «"+f.name+"»: qaimə "+(v.no||"")+" ← "+ids.length+" servis hesabatı");return ids.length}
+async function unlinkDoc(f,id){const v=inv(f.inv);if(v){const qs=qsAll(),{s,links}=invLinked(v,qs);
+    if(s.has(id)){const x=qs.find(q=>q.id===id),bin=binOf(x);
+      if(bin)await api("svcDetach",{quoteId:bin,recId:id});else if(links.some(q=>q.id===id))await api("relinkSaleInvoice",{id:v.id,quoteId:id,mode:"remove"});
+      await sync();log("Qovluq «"+f.name+"»: "+(repNo(x)||x.no)+" qaimədən ayrıldı")}}}
+function allBoundSvc(qs){const S=new Set();(state.invoices||[]).filter(v=>v.dir==="out"&&!v.del).forEach(v=>invLinked(v,qs).s.forEach(i=>S.add(i)));return S}
+function render_(){mainTabs("jobs");css();if(!gate()){$("#main").innerHTML='<div class="locked">Bu bölmə üçün icazəniz yoxdur.</div>';return}
+  const F=ld(),f=F.find(x=>x.id===J.f)||null,qs=qsAll(),byId={};qs.forEach(x=>byId[x.id]=x);
+  const v=f?inv(f.inv):null,L=v?invLinked(v,qs):{s:new Set(),links:[]};
+  const inFold=new Set();F.forEach(x=>{if(x.id!==J.f)(x.svc||[]).forEach(i=>inFold.add(i))});
+  const bound=allBoundSvc(qs);
+  const info=s=>[dt(s.sdate||s.date),s.site||"",AZN(saNum(s.total))].filter(Boolean).join(" · ");
+  const flHTML=`<div class="jb-fl">${F.map(x=>{const iv=inv(x.inv);return `<button type="button" class="jb-f${x.id===J.f?" on":""}" data-jf="${esc(x.id)}"><b>📁 ${esc(x.name)}</b><small>${(x.svc||[]).length} hesabat · ${iv?"qaimə "+esc(iv.no||""):"qaimə yoxdur"}</small></button>`}).join("")}</div>
+   <div class="actions" style="align-items:center"><input id="jbNm" placeholder="Yeni qovluğun adı (məs. İQLİM — Noyabr işləri)" value="${esc(J.nm)}" style="flex:1;min-width:220px"><button class="btn pri jb-big" id="jbNew">+ Yeni qovluq</button></div>`;
+  let body="";
+  if(f){
+    const kids=(f.svc||[]).map(id=>{const s=byId[id];if(!s)return `<div class="jb-kid bad"><span class="g"><b>Sənəd tapılmadı</b> <small class="note">silinmiş ola bilər</small></span><button class="btn sm danger" data-jx="${esc(id)}">Qovluqdan çıxar</button></div>`;
+      const ok=L.s.has(id),bq=binOf(s)?byId[binOf(s)]:null;
+      return `<div class="jb-kid${ok?"":" pend"}"><span class="g"><b>${esc(repNo(s)?"Servis hesabatı № "+repNo(s):"Servis sənədi "+(s.no||""))}</b> <small class="note">${esc(s.client||"")}<br>${esc(info(s))}</small></span>${ok?'<span class="chip ok">qaiməyə bağlıdır</span>':v?'<span class="chip warn">bağlanmayıb</span>':'<span class="chip warn">qaimə gözlənilir</span>'}${bq&&!ok?`<span class="chip" title="Bağlananda aylıq hesabdan çıxarılacaq">hesabda: ${esc(bq.no||"")}</span>`:""}<button class="btn sm" data-jx="${esc(id)}" title="Qovluqdan və qaimədən çıxar">✕ Çıxar</button></div>`}).join("");
+    const pend=(f.svc||[]).filter(id=>byId[id]&&!L.s.has(id)).length;
+    body=`<div class="jb-box"><h3 style="margin:0 0 6px">📁 ${esc(f.name)} <button class="btn sm ghost" data-jren="1">Adı dəyiş</button> <button class="btn sm ghost danger" data-jdel="1">Qovluğu sil</button></h3>
+      ${v?`<div class="jb-inv"><b>🧾 Qaimə ${esc(v.no||"")}</b><small class="note">${esc(v.supplier||"")} · ${esc(dt(v.date))} · ${esc(AZN(saInvTotals(v).total))}</small><span style="flex:1"></span><button class="btn sm" data-jopen="1">Qaiməni aç</button><button class="btn sm ghost" data-jchg="1">Başqa qaimə seç</button></div>`
+        :`<div class="jb-inv" style="border-left-color:#B5761F"><b>🧾 Qaimə hələ əlavə olunmayıb</b><small class="note">Qaimə proqrama düşəndə aşağıdan seçin — hesabatlar avtomatik ona bağlanacaq.</small></div>`}
+      <div class="jb-kids">${kids||'<p class="note">Qovluq boşdur. Aşağıdan servis hesabatlarını işarələyib əlavə edin.</p>'}</div>
+      ${pend&&v?`<div class="actions" style="margin-top:8px"><button class="btn pri jb-big" id="jbLink">Qovluqdakı ${pend} hesabatı qaiməyə bağla</button></div>`:""}
+      <p class="note" id="jbMsg">${esc(J.msg)}</p></div>`;
+    /* qaimə seçimi */
+    const iq=norm(J.iq||"");
+    if(!v||J.pickInv){const invs=(state.invoices||[]).filter(x=>x.dir==="out"&&!x.del&&x.status!=="draft").sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+      const shown=invs.filter(x=>!iq||norm([x.no,x.supplier].join(" ")).includes(iq)).slice(0,40);
+      body+=`<div class="card"><h3>Qaiməni seçin</h3><input id="jbIq" type="search" placeholder="Qaimə № və ya şirkət adı" value="${esc(J.iq)}">${shown.map(x=>`<label class="jb-row"><input type="radio" name="jbI" data-ji="${esc(x.id)}"${f.inv===x.id?" checked":""}><span style="flex:1;min-width:200px"><b>${esc(x.no||"—")}</b> <small class="note">${esc(x.supplier||"")} · ${esc(dt(x.date))} · ${esc(AZN(saInvTotals(x).total))}</small></span></label>`).join("")||'<p class="note">Qaimə tapılmadı.</p>'}</div>`}
+    /* servis hesabatları */
+    let cand=qs.filter(x=>isSvc(x)&&x.status!=="rejected"&&!inFold.has(x.id)&&!(f.svc||[]).includes(x.id)&&(J.all||!bound.has(x.id)));
+    const hint=v?NM(v.supplier):NM(f.name);
+    const Q=norm(J.q||"");if(Q)cand=cand.filter(x=>norm([x.client,x.site,x.no,repNo(x)].join(" ")).includes(Q));
+    const G={};cand.forEach(s=>{const k=NM(s.client)||"—";(G[k]=G[k]||{name:s.client||"Adsız",k,list:[]}).list.push(s)});
+    const groups=Object.values(G).sort((a,b)=>a.name.localeCompare(b.name,"az"));
+    const nSel=[...J.sel].filter(id=>cand.some(s=>s.id===id)).length;
+    const row=s=>{const bq=binOf(s)?byId[binOf(s)]:null;return `<label class="jb-row"><input type="checkbox" data-js="${esc(s.id)}"${J.sel.has(s.id)?" checked":""}><span style="flex:1;min-width:200px"><b>${esc(repNo(s)?"№ "+repNo(s):s.no||"—")}</b> <small class="note">${esc(info(s))}</small></span>${bq?`<span class="chip warn">hesabda: ${esc(bq.no||"")}</span>`:""}${bound.has(s.id)?'<span class="chip">başqa qaiməyə bağlı</span>':""}</label>`};
+    body+=`<div class="card"><h3>Servis hesabatlarını qovluğa əlavə et</h3>
+      <div class="actions" style="align-items:center"><input id="jbQ" type="search" placeholder="Axtar: müştəri, obyekt, hesabat №" value="${esc(J.q)}" style="flex:1;min-width:200px"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="jbAll"${J.all?" checked":""} style="width:auto;min-height:0">Qaiməyə bağlı olanları da göstər</label></div>
+      <p class="note" style="margin:4px 0">${cand.length} hesabat · seçilib: <b>${nSel}</b></p>
+      ${groups.map(g=>{const ids=g.list.map(s=>s.id),all=ids.every(i=>J.sel.has(i));return `<details ${hint&&g.k&&(hint.includes(g.k)||g.k.includes(hint))?"open":groups.length<4?"open":""} class="card" style="padding:8px 12px;margin:6px 0"><summary style="cursor:pointer;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>${esc(g.name)}</b><small class="note">${g.list.length}</small><span style="flex:1"></span><button type="button" class="btn sm" data-jg="${esc(ids.join(","))}" data-jon="${all?0:1}">${all?"Seçimi götür":"Hamısını seç"}</button></summary>${g.list.sort((a,b)=>String(a.sdate||a.date).localeCompare(String(b.sdate||b.date))).map(row).join("")}</details>`}).join("")||'<div class="empty"><h3>Əlavə ediləcək hesabat yoxdur</h3><p>Axtarışı dəyişin və ya “bağlı olanları da göstər” işarəsini qoyun.</p></div>'}
+      <div class="actions" style="margin-top:8px"><button class="btn pri jb-big" id="jbAdd"${nSel?"":" disabled"}>Seçilmiş ${nSel} hesabatı qovluğa əlavə et</button></div></div>`}
+  else body=`<div class="empty"><h3>Qovluq seçin və ya yenisini yaradın</h3><p>Hər iş üçün bir qovluq: içinə servis hesabatlarını və qaiməni əlavə edirsiniz, hamısı bir-biri ilə avtomatik əlaqələnir.</p></div>`;
+  $("#main").innerHTML=`<h2 class="sec">İş qovluqları</h2><p class="hint">Hər iş üçün qovluq yaradın → servis hesabatlarını (fərqli vaxtlarda, fərqli müştərilər) və qaiməni əlavə edin → qovluqdakılar bir-biri ilə əlaqələnir. Sürüşdürmək lazım deyil.</p>${flHTML}${body}`;
+  const rr=()=>{const y=window.scrollY;render_();window.scrollTo(0,y)};
+  $("#jbNm").oninput=e=>{J.nm=e.target.value};
+  $("#jbNew").onclick=()=>{const n=(J.nm||"").trim();if(!n){toast("Qovluğa ad yazın");return}const a=ld(),o={id:"jb"+Date.now().toString(36),name:n,inv:"",svc:[],at:Date.now()};a.unshift(o);sv(a);J.f=o.id;J.nm="";J.sel.clear();J.pickInv=false;J.msg="";render_()};
+  $$("[data-jf]").forEach(b=>b.onclick=()=>{J.f=b.dataset.jf;J.sel.clear();J.pickInv=false;J.msg="";J.q="";render_()});
+  if(!f)return;
+  const save=fn=>{const a=ld(),o=a.find(x=>x.id===f.id);if(o){fn(o);sv(a)}};
+  const ren=document.querySelector("[data-jren]");if(ren)ren.onclick=()=>{const n=prompt("Qovluğun yeni adı",f.name);if(n&&n.trim()){save(o=>o.name=n.trim());render_()}};
+  const del=document.querySelector("[data-jdel]");if(del)del.onclick=()=>{if(!confirm("«"+f.name+"» qovluğu silinsin?\n\nQovluqla yanaşı sənədlər və artıq qurulmuş bağlantılar silinmir, yalnız qovluq aradan qalxır."))return;sv(ld().filter(x=>x.id!==f.id));J.f="";render_()};
+  const op=document.querySelector("[data-jopen]");if(op)op.onclick=()=>{if(typeof INV!=="undefined")INV=null;go("invoice",v.id)};
+  const ch=document.querySelector("[data-jchg]");if(ch)ch.onclick=()=>{J.pickInv=true;render_()};
+  const run_=async fn=>{if(J.busy)return;J.busy=true;try{await fn()}catch(e){J.msg=msgOf(e);toast(msgOf(e),7000)}J.busy=false;if(state.view==="jobs")render_()};
+  const iqI=$("#jbIq");if(iqI)iqI.oninput=()=>{J.iq=iqI.value;const p=iqI.selectionStart;render_();const n=$("#jbIq");n.focus();try{n.setSelectionRange(p,p)}catch(e){}};
+  $$("[data-ji]").forEach(r=>r.onchange=()=>run_(async()=>{save(o=>o.inv=r.dataset.ji);J.pickInv=false;const f2=ld().find(x=>x.id===f.id);const n=await linkFolder(f2);J.msg=n?n+" hesabat qaiməyə bağlandı":"Qaimə qovluğa əlavə olundu";if(n)toast(J.msg)}));
+  const qi=$("#jbQ");if(qi)qi.oninput=()=>{J.q=qi.value;const p=qi.selectionStart;render_();const n=$("#jbQ");n.focus();try{n.setSelectionRange(p,p)}catch(e){}};
+  const al=$("#jbAll");if(al)al.onchange=e=>{J.all=e.target.checked;render_()};
+  $$("[data-js]").forEach(c=>c.onchange=()=>{if(c.checked)J.sel.add(c.dataset.js);else J.sel.delete(c.dataset.js);rr()});
+  $$("[data-jg]").forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();b.dataset.jg.split(",").forEach(id=>{if(b.dataset.jon==="1")J.sel.add(id);else J.sel.delete(id)});rr()});
+  const add=$("#jbAdd");if(add)add.onclick=()=>run_(async()=>{const ids=[...J.sel];if(!ids.length)return;save(o=>{o.svc=[...new Set([...(o.svc||[]),...ids])]});J.sel.clear();const f2=ld().find(x=>x.id===f.id);
+    if(f2.inv){add.disabled=true;add.textContent="Bağlanır…";const n=await linkFolder(f2);J.msg=n+" hesabat qovluğa əlavə olundu və qaiməyə bağlandı";toast(J.msg)}else{J.msg=ids.length+" hesabat qovluğa əlavə olundu. Qaimə əlavə olunanda bağlanacaq.";toast(J.msg)}});
+  const lk=$("#jbLink");if(lk)lk.onclick=()=>run_(async()=>{lk.disabled=true;lk.textContent="Bağlanır…";const n=await linkFolder(ld().find(x=>x.id===f.id));J.msg=n+" hesabat qaiməyə bağlandı";toast(J.msg)});
+  $$("[data-jx]").forEach(b=>b.onclick=()=>run_(async()=>{const id=b.dataset.jx;if(!confirm("Bu sənəd qovluqdan çıxarılsın"+(L.s.has(id)?" və qaimədən ayrılsın":"")+"?"))return;await unlinkDoc(f,id);save(o=>o.svc=(o.svc||[]).filter(x=>x!==id))}))}
+const _gs=grpSubs;
+grpSubs=function(raw){const R=_gs.call(this,true);let ok=false;try{ok=gate()}catch(e){}
+  if(ok){const e=R.find(x=>x[0]==="sale");if(e&&!e[1].some(x=>x[0]==="jobs"))e[1].unshift(["jobs","İş qovluqları"])}
+  if(raw)return R;
+  const M=MENU.get();if(M.ord.length)R.sort((a,b)=>{const i=M.ord.indexOf(a[0]),j=M.ord.indexOf(b[0]);return (i<0?99:i)-(j<0?99:j)});
+  const F=R.filter(([g])=>!M.hide.has("g:"+g)).map(([g,L])=>[g,L.filter(x=>!M.hide.has(x[0]))]).filter(([g,L])=>L.length);return F.length?F:R};
+const _rn=render;render=function(){if(state.view==="jobs"){header();return render_()}return _rn.apply(this,arguments)};
+window.saJobs={J,ld,sv,linkFolder,unlinkDoc};
+}catch(e){console.log("sa-jobs",e)}})();
 </script>
 </body>
 </html>
