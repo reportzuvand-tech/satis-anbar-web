@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="az">
 <head>
-<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112411;window.ZS_APP="sa";(function(){
+<script>/*ZSUPD-BOOT*/window.ZS_BUILD=2026112412;window.ZS_APP="sa";(function(){
 /* installed app (phone APK / Windows): if a newer version was downloaded with "Yenilə", run that one instead of the built-in file */
 var K="zsupd."+ZS_APP;try{var L=location;if(!(L.protocol==="file:"||window.Capacitor||(L.hostname==="localhost"&&!L.port)))return;
 if(/[?&]zsorig=1/.test(L.search)||sessionStorage.getItem(K+".off"))return;var v=+localStorage.getItem(K+".v")||0;
@@ -5256,6 +5256,266 @@ grpSubs=function(raw){const R=_gs.call(this,true);let ok=false;try{ok=gate()}cat
 const _rn=render;render=function(){if(state.view==="customs"){header();return renderGb()}return _rn.apply(this,arguments)};
 window.saGbParse=async f=>{const d=await readPdf(f);return d.map(x=>({...x,lines:splitLines(x)}))};
 }catch(e){console.log("sa-gb",e)}})();
+
+</script>
+<script>
+/* Satış və Anbar: Əlaqələndirmə — qaimə, anbardan verilən mal və servis sənədini sürüşdürməklə (və ya “Bağla…” düyməsi ilə) təklifə / qaiməyə bağlamaq.
+   Bağlanmamışlar siyahısı, avtomatik təklif, dəyişiklik tarixçəsi (geri qaytarmaqla). Silinən təklif/hesabatın bağlı sənədləri silinmir, bərpada yenidən bağlanır. */
+(function(){try{
+if(window.__saLk)return;window.__saLk=1;
+const R2=n=>Math.round((+n||0)*100)/100;
+const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const NM=s=>saNormName(s||"");
+const dt=d=>d?String(d).split("-").reverse().join("."):"";
+const rec=id=>state.local[id]||state.remote[id]||null;
+const isSvc=s=>!!s&&(s.srcT==="service"||!!(s.src&&s.src.type==="service"));
+const isBin=s=>!!s&&(!!s.bmon||!!s.nrec||s.srcT==="bill"||!!(s.src&&s.src.type==="bill"));
+const binOf=s=>(s&&(s.binId||(s.billedIn&&s.billedIn.id)))||"";
+const msgOf=e=>{try{return errMsg(e)}catch(x){return String(e&&e.message||e)}};
+const S={q:"",only:true,open:new Set(),shut:new Set(),log:false,busy:false,reg:{}};
+const gate=()=>can("linkMap");
+
+/* ===== server: anbar hərəkətini başqa təklifə / qaiməyə köçürmək (demo və yerli server üçün; Google serverində köhnə yolla edilir) ===== */
+const _sh=saHandle;
+saHandle=function(db,u,action,p){
+  if(action!=="relinkMove")return _sh.apply(this,arguments);
+  p=p||{};const role=u.role,now=Date.now(),ch={items:[],moves:[],quotes:[],invoices:[],contracts:[],expenses:[],settings:null};
+  if(!SA_CAN.admin(role))saErr("forbidden");
+  const qOf=id=>{for(let i=0;i<db.quotes.length;i++)if(db.quotes[i].id===id&&!db.quotes[i].del)return db.quotes[i];return null};
+  const ids=(p.ids||[]).map(String),ms=db.moves.filter(m=>!m.del&&ids.indexOf(m.id)>=0&&m.kind==="out");if(!ms.length)saErr("notfound");
+  const tq=p.quoteId?qOf(p.quoteId):null;if(p.quoteId&&!tq)saErr("notfound");
+  if(tq&&!p.force){const rem=saRemaining(db,tq),add={};ms.forEach(m=>{if(m.quoteId!==tq.id)add[m.itemId]=(add[m.itemId]||0)+saNum(m.qty)});
+    Object.keys(add).forEach(id=>{if(!rem[id]||add[id]>rem[id].left+1e-9){const it=db.items.find(x=>x.id===id);saErr("overquote",{name:it?it.name:"",left:rem[id]?rem[id].left:0,q:tq.no})}})}
+  const olds={};
+  ms.forEach(m=>{if(m.quoteId)olds[m.quoteId]=1;m.relog=(m.relog||[]).slice(-9).concat([{at:now,by:u.name,from:m.quoteId||"",to:tq?tq.id:""}]);
+    m.quoteId=tq?tq.id:"";m.quoteNo=tq?tq.no:"";if(p.invoiceId!==undefined){if(p.invoiceId)m.invoiceId=p.invoiceId;else delete m.invoiceId}ch.moves.push(m)});
+  const fix=q=>{if(!q||(q.status!=="accepted"&&q.status!=="done"))return;const r=saRemaining(db,q);let left=0;Object.keys(r).forEach(k=>{left+=r[k].left});
+    const st=left<=1e-9?"done":"accepted";if(st!==q.status){q.status=st;q.updatedAt=now;q.by=u.name;q.hist=(q.hist||[]).slice(-39);q.hist.push({at:now,by:u.name,st:st,what:"anbar hərəkəti köçürüldü"});ch.quotes.push(q)}};
+  Object.keys(olds).forEach(id=>fix(qOf(id)));fix(tq);
+  return {res:{moved:ms.length,stock:saStock(db)},ch:ch}};
+
+/* ===== məlumatın toplanması ===== */
+const snapGet=()=>lsGet("sa.lkSnap",{});
+function scan(){
+  const qs=listQuotes().filter(s=>!s.delAt&&!s.del),qById={};qs.forEach(s=>qById[s.id]=s);
+  const invs=(state.invoices||[]).filter(v=>!v.del&&v.dir==="out"),vById={};invs.forEach(v=>vById[v.id]=v);
+  const invQ=v=>[...new Set([v.quoteId,...(Array.isArray(v.quoteIds)?v.quoteIds:[])].filter(Boolean))].filter(id=>qById[id]);
+  const items={};(state.items||[]).forEach(i=>items[i.id]=i);
+  const MG={};(state.moves||[]).forEach(m=>{if(m.del||m.kind!=="out"||m.retBy||m.reason)return;
+    const op=String(m.id).replace(/_[^_]*$/,""),k=op+"|"+(m.quoteId||"")+"|"+(m.invoiceId||"");
+    const g=MG[k]||(MG[k]={key:k,ids:[],names:[],itemIds:[],date:m.date||"",doc:m.doc||"",party:m.party||"",quoteId:m.quoteId||"",quoteNo:m.quoteNo||"",invoiceId:m.invoiceId||"",sum:0});
+    g.ids.push(m.id);g.names.push((m.name||(items[m.itemId]||{}).name||"")+" × "+qx(Math.abs(saNum(m.qty))));if(m.itemId)g.itemIds.push(m.itemId);g.sum+=Math.abs(saNum(m.qty))*saNum(m.cost)});
+  const groups=Object.values(MG);
+  const repOf={};qs.forEach(q=>(q.reps||[]).forEach(id=>{(repOf[id]=repOf[id]||[]).push(q.id)}));
+  const snap=snapGet(),was={};Object.keys(snap).forEach(id=>{const s=snap[id];(s.inv||[]).forEach(x=>was["v:"+x]=s.no);(s.mv||[]).forEach(x=>was["m:"+x]=s.no);(s.reps||[]).forEach(x=>was["s:"+x]=s.no);(s.inRep||[]).forEach(x=>was["s:"+id]=was["s:"+id]||s.no)});
+  const U={inv:invs.filter(v=>v.status!=="draft"&&!invQ(v).length),
+    mv:groups.filter(g=>!qById[g.quoteId]&&!(g.invoiceId&&vById[g.invoiceId]&&invQ(vById[g.invoiceId]).length)),
+    svc:qs.filter(s=>isSvc(s)&&!binOf(s)&&!(repOf[s.id]||[]).length&&!s.bill&&!s.billedIn&&s.status!=="rejected")};
+  return {qs,qById,invs,vById,invQ,groups,repOf,U,was,items}}
+
+/* ===== uyğunluq balı: müştəri adı, tarix, məbləğ, mallar ===== */
+function dayDiff(a,b){const x=Date.parse(a),y=Date.parse(b);return isNaN(x)||isNaN(y)?999:Math.abs(x-y)/864e5}
+function itemInfo(D,key){const [t,...r]=key.split(":"),id=r.join(":");
+  if(t==="v"){const v=D.vById[id];return v?{t,id,key,date:v.date,party:v.supplier,total:saInvTotals(v).total,label:"Qaimə "+(v.no||""),v}:null}
+  if(t==="m"){const g=S.reg[id]||D.groups.find(x=>x.key===id);return g?{t,id:g.key,key,date:g.date,party:g.party,itemIds:g.itemIds,label:"Verilən mal "+(g.doc||g.names[0]||""),g}:null}
+  if(t==="s"){const s=D.qById[id];return s?{t,id,key,date:s.date,party:s.client,total:saNum(s.total),label:"Servis sənədi "+(s.no||""),s}:null}return null}
+function score(it,q){const cn=NM(it.party),qn=NM(q.client||"");if(!cn||!qn)return 0;let s=0;
+  if(cn===qn)s+=50;else if(cn.includes(qn)||qn.includes(cn))s+=38;else{const a=cn.split(" ").filter(w=>w.length>2),b=qn.split(" ");if(a.some(w=>b.includes(w)))s+=15;else return 0}
+  const d=dayDiff(it.date,q.date);s+=d<=7?20:d<=30?12:d<=90?5:0;
+  if(it.total&&saNum(q.total)){const r=Math.abs(it.total-saNum(q.total))/saNum(q.total);s+=r<0.01?30:r<0.1?12:0}
+  if(it.itemIds&&it.itemIds.length&&state.remaining&&state.remaining[q.id]){const ks=Object.keys(state.remaining[q.id]);s+=Math.round(30*it.itemIds.filter(x=>ks.includes(x)).length/it.itemIds.length)}
+  return Math.min(100,s)}
+function candidates(D,it){return D.qs.filter(q=>!isBin(q)&&q.status!=="draft"&&q.status!=="rejected"&&!(it.t==="s"&&isSvc(q))&&!(it.t==="s"&&q.id===it.id)&&!(it.t==="v"&&D.invQ(it.v).includes(q.id)))
+  .map(q=>({q,sc:score(it,q)})).sort((a,b)=>b.sc-a.sc||String(b.q.date).localeCompare(String(a.q.date)))}
+function best(D,it){const c=candidates(D,it);if(!c.length||c[0].sc<55)return null;if(c[1]&&c[0].sc-c[1].sc<8)return {...c[0],weak:true};return c[0]}
+
+/* ===== əməliyyatlar ===== */
+const run=async(action,p)=>{try{await flush()}catch(e){}const r=await api(action,p);return r||{}};
+async function relinkMoves(ids,quoteId,invoiceId,force){
+  try{try{await flush()}catch(e){}await api("relinkMove",{ids,quoteId:quoteId||"",invoiceId:invoiceId||"",force:!!force});return true}
+  catch(e){const er=e&&e.data&&e.data.error;
+    if(er==="overquote"&&!force){if(confirm(msgOf(e)+"\n\nYenə də bağlansın?"))return relinkMoves(ids,quoteId,invoiceId,true);return false}
+    if(er==="action")return relinkMovesOld(ids,quoteId,invoiceId);
+    toast(msgOf(e),6000);return false}}
+/* köhnə server: mövcud əməliyyatlarla — hərəkət silinir, eyni mal/say yeni təklifə yazılır (anbar qalığı dəyişmir) */
+async function relinkMovesOld(ids,quoteId,invoiceId){
+  if(invoiceId){toast("Anbar hərəkətini qaiməyə köçürmək üçün server yenilənməlidir. Təklifə köçürmək mümkündür.",7000);return false}
+  const ms=(state.moves||[]).filter(m=>!m.del&&ids.includes(m.id));if(!ms.length)return false;const done=[];
+  try{for(const m of ms){await api("delMove",{id:m.id});done.push(m);
+      await api("addMoves",{kind:"out",quoteId:quoteId||"",doc:m.doc||"",party:m.party||"",date:m.date,note:((m.note||"")+" (əlaqə köçürüldü)").trim(),lines:[{itemId:m.itemId,qty:m.qty}]})}
+    return true}
+  catch(e){for(const m of done){try{await api("addMoves",{kind:"out",quoteId:m.quoteId||"",doc:m.doc||"",party:m.party||"",date:m.date,note:m.note||"",lines:[{itemId:m.itemId,qty:m.qty}]})}catch(x){}}
+    toast(msgOf(e),6000);return false}}
+const logAdd=(what,steps)=>{const L=lsGet("sa.lklog",[]);L.unshift({at:Date.now(),by:state.me.name||"",what,steps:steps||[]});lsSet("sa.lklog",L.slice(0,120))};
+async function stepRun(st){if(st.a==="moves")return relinkMoves(st.ids,st.q,st.v);await run(st.a,st.p);return true}
+
+async function apply(D,src,tgt,opt){opt=opt||{};const q=tgt.t==="q"?D.qById[tgt.id]:null,v=tgt.t==="v"?D.vById[tgt.id]:null;let ok=false,steps=null,what="";
+  try{
+  if(tgt.t==="free"){
+    if(src.t==="v"){const L=D.invQ(src.v);if(!L.length){toast("Bu qaimə heç bir sənədə bağlı deyil");return false}if(!opt.quiet&&!confirm(src.label+" "+L.length+" sənədən ayrılsın?"))return false;
+      for(const id of L)await run("relinkSaleInvoice",{id:src.id,quoteId:id,mode:"remove"});ok=true;what=src.label+" ayrıldı";steps=[{a:"relinkSaleInvoice",p:{id:src.id,quoteId:L[0],mode:"replace"}}].concat(L.slice(1).map(x=>({a:"relinkSaleInvoice",p:{id:src.id,quoteId:x,mode:"add"}})))}
+    else if(src.t==="m"){const g=src.g;if(!g.quoteId&&!g.invoiceId){toast("Bu mal heç bir sənədə bağlı deyil");return false}if(!opt.quiet&&!confirm("Verilən mal "+(g.quoteNo||"")+" sənədindən ayrılsın? Anbar qalığı dəyişməyəcək."))return false;
+      ok=await relinkMoves(g.ids,"","");what="Verilən mal ayrıldı";steps=[{a:"moves",ids:g.ids,q:g.quoteId,v:g.invoiceId}]}
+    else if(src.t==="s"){const sales=D.repOf[src.id]||[],bin=binOf(src.s);if(!sales.length&&!bin){toast("Bu sənədin ayrılacaq əlaqəsi yoxdur");return false}if(!opt.quiet&&!confirm(src.label+" ayrılsın?"))return false;
+      for(const id of sales)await run("setQuoteRep",{id,recId:src.id,on:false});if(bin)await run("svcDetach",{quoteId:bin,recId:src.id});ok=true;what=src.label+" ayrıldı";steps=sales.map(id=>({a:"setQuoteRep",p:{id,recId:src.id,on:true}}))}}
+  else if(src.t==="v"&&q){const L=D.invQ(src.v);
+    if(isSvc(q)){if(!opt.quiet&&!confirm(src.label+" → servis sənədi "+q.no+" bağlansın? Qaimənin sətirləri sənədə əlavə olunacaq."))return false;await run("svcAttachInv",{recId:q.id,invIds:[src.id]});ok=true;what=src.label+" → "+q.no}
+    else{let mode="replace";if(L.length&&!opt.quiet)mode=confirm(src.label+" → "+q.no+"\n\nOK — əlavə et (qaimə hər iki sənədə aid olsun)\nLəğv — əvvəlkindən ayırıb köçür")?"add":"replace";
+      if(!opt.quiet&&!L.length&&!confirm(src.label+" → "+q.no+" bağlansın?"))return false;
+      await run("relinkSaleInvoice",{id:src.id,quoteId:q.id,mode});ok=true;what=src.label+" → "+q.no;
+      steps=mode==="add"||!L.length?[{a:"relinkSaleInvoice",p:{id:src.id,quoteId:q.id,mode:"remove"}}]:[{a:"relinkSaleInvoice",p:{id:src.id,quoteId:L[0],mode:"replace"}}].concat(L.slice(1).map(x=>({a:"relinkSaleInvoice",p:{id:src.id,quoteId:x,mode:"add"}})))}}
+  else if(src.t==="m"&&(q||v)){const g=src.g,qid=q?q.id:(D.invQ(v)[0]||""),lab=q?q.no:"qaimə "+v.no;
+    if(!opt.quiet&&!confirm(src.label+" → "+lab+" bağlansın? Anbar qalığı dəyişməyəcək."))return false;
+    ok=await relinkMoves(g.ids,qid,v?v.id:"");what=src.label+" → "+lab;steps=[{a:"moves",ids:g.ids,q:g.quoteId,v:g.invoiceId}]}
+  else if(src.t==="s"&&q){if(!opt.quiet&&!confirm(src.label+" → "+q.no+" əlaqəli hesabat kimi bağlansın?"))return false;await run("setQuoteRep",{id:q.id,recId:src.id,on:true});ok=true;what=src.label+" → "+q.no;steps=[{a:"setQuoteRep",p:{id:q.id,recId:src.id,on:false}}]}
+  else if(src.t==="s"&&v){if(!opt.quiet&&!confirm(src.label+" → qaimə "+v.no+" bağlansın?"))return false;const bin=binOf(src.s);if(bin)await run("svcDetach",{quoteId:bin,recId:src.id});
+    await run("billSvcInvoice",{id:v.id,recs:[src.id],mode:D.invQ(v).length?"add":undefined});ok=true;what=src.label+" → qaimə "+v.no}
+  }catch(e){toast(msgOf(e),6000);return false}
+  if(ok){try{await sync()}catch(e){}logAdd(what,steps);if(!opt.quiet)toast("Əlaqə yeniləndi")}
+  return ok}
+
+/* ===== görünüş ===== */
+function css(){if(document.getElementById("lkCss"))return;document.head.insertAdjacentHTML("beforeend",`<style id="lkCss">
+.lk .lk-it{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-left:4px solid var(--c,#888);border-radius:8px;padding:6px 10px;margin:4px 0;background:var(--card,#fff);touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none}
+.lk .k-v{--c:#C2410C}.lk .k-m{--c:#6B7280}.lk .k-s{--c:#0B7A4B}
+.lk .lk-it small{color:var(--muted)}.lk .lk-it .sp{flex:1;min-width:10px}
+.lk .lk-q{border:1px solid var(--line);border-left:4px solid #B5761F;border-radius:10px;padding:8px 12px;margin:8px 0;background:var(--card,#fff)}
+.lk .lk-q .qh{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.lk .sax-ok,.lk .lk-ok{outline:2px dashed #2563A8;outline-offset:2px}.lk .lk-hot{outline:3px solid #0B7A4B!important;background:rgba(11,122,75,.08)}
+.lk .lk-drag{opacity:.45}
+.lk .chip.sg{background:#E8F3EC;color:#0B5C39;cursor:pointer;border:1px solid #9CCFB1}
+#lkFree{position:fixed;left:12px;right:12px;bottom:12px;padding:14px;text-align:center;border:2px dashed #B42318;border-radius:12px;background:rgba(180,35,24,.08);color:#B42318;font-weight:700;display:none;z-index:60}
+#lkFree.on{display:block}#lkFree.lk-hot{background:rgba(180,35,24,.2)}
+#lkGhost{position:fixed;z-index:80;pointer-events:none;background:#16362E;color:#fff;border-radius:8px;padding:6px 10px;font-size:13px;transform:translate(-50%,-120%);max-width:80vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lkov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:90;display:flex;align-items:flex-end;justify-content:center}
+.lkov>div{background:var(--card,#fff);color:var(--ink);width:min(680px,100%);max-height:86vh;overflow:auto;border-radius:14px 14px 0 0;padding:14px 16px}
+@media(min-width:700px){.lkov{align-items:center}.lkov>div{border-radius:14px}}
+.lkov .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding:8px 0}
+</style>`)}
+const itRow=(key,k,label,sub,extra)=>`<div class="lk-it k-${k}" data-lk="${esc(key)}"><b>${esc(label)}</b><small>${esc(sub||"")}</small><span class="sp"></span>${extra||""}</div>`;
+function rowsOf(D,list,src){return list.map(it=>{const sg=best(D,it);const was=D.was[it.key];
+  const extra=`${was?`<span class="chip warn" title="Silinmiş sənədə bağlı idi">əvvəl: ${esc(was)}</span>`:""}${sg?`<span class="chip sg" data-lksg="${esc(it.key)}|${esc(sg.q.id)}" title="Avtomatik təklif — basın">→ ${esc(sg.q.no)} · ${sg.sc}%${sg.weak?" ?":""}</span>`:""}<button type="button" class="btn sm" data-lkpick="${esc(it.key)}">Bağla…</button>`;
+  return itRow(it.key,it.t,it.label,[dt(it.date),it.party,it.total?AZN(it.total):""].filter(Boolean).join(" · "),extra)}).join("")}
+function registerGroups(D){S.reg={};D.groups.forEach((g,i)=>{g.rid="g"+i;S.reg[g.rid]=g})}
+function renderLk(){mainTabs("relink");css();if(!gate()){$("#main").innerHTML='<div class="locked">Bu bölmə yalnız rəhbər üçündür.</div>';return}
+  const D=scan();registerGroups(D);const key={v:x=>"v:"+x.id,m:g=>"m:"+g.rid,s:x=>"s:"+x.id};
+  const Un=[...D.U.inv.map(v=>itemInfo(D,key.v(v))),...D.U.mv.map(g=>itemInfo(D,key.m(g))),...D.U.svc.map(s=>itemInfo(D,key.s(s)))].filter(Boolean);
+  const Q=norm(S.q||"");
+  const unF=Un.filter(it=>!Q||norm([it.label,it.party].join(" ")).includes(Q));
+  const sg=Un.map(it=>({it,b:best(D,it)})).filter(x=>x.b&&!x.b.weak);
+  const nm=Un.reduce((a,x)=>{x.n=NM(x.party);return a},0);const unNames=Un.map(it=>NM(it.party)).filter(Boolean);
+  const hasUn=c=>{const n=NM(c);return !!n&&unNames.some(u=>u===n||u.includes(n)||n.includes(u))};
+  const G={};D.qs.filter(s=>!isBin(s)).forEach(s=>{const k=NM(s.client)||"—";(G[k]=G[k]||{name:s.client||"Adsız",qs:[]}).qs.push(s)});
+  let list=Object.entries(G).map(([k,g])=>({k,g,un:hasUn(g.name)})).filter(x=>(!Q||norm([x.g.name,...x.g.qs.map(s=>s.no)].join(" ")).includes(Q))&&(!S.only||x.un||Q));
+  list.sort((a,b)=>(b.un-a.un)||a.g.name.localeCompare(b.g.name,"az"));
+  const qCard=s=>{const vs=D.invs.filter(v=>D.invQ(v).includes(s.id)),ms=D.groups.filter(g=>g.quoteId===s.id),rs=(s.reps||[]).map(id=>D.qById[id]).filter(Boolean);
+    return `<div class="lk-q" data-lkq="${esc(s.id)}"><div class="qh"><b>${esc((isSvc(s)?"Servis sənədi ":"Satış / təklif ")+(s.no||""))}</b><small class="note">${esc([dt(s.date),AZN(saNum(s.total)),SA_STATUS[s.status]||""].filter(Boolean).join(" · "))}</small><span class="sp" style="flex:1"></span><button type="button" class="btn sm" data-lkopen="${esc(s.id)}">Aç</button></div>
+     ${vs.map(v=>`<div class="lk-v" data-lkv="${esc(v.id)}">${itRow("v:"+v.id,"v","Qaimə "+(v.no||""),[dt(v.date),AZN(saInvTotals(v).total)].join(" · "))}</div>`).join("")}
+     ${ms.map(g=>itRow("m:"+g.rid,"m","Verilən mal"+(g.doc?" · "+g.doc:""),dt(g.date)+" · "+g.names.slice(0,3).join(", ")+(g.names.length>3?"…":""))).join("")}
+     ${rs.map(r=>itRow("s:"+r.id,"s","Servis hesabatı "+(r.svc&&r.svc!=="servis"?"№ "+r.svc:r.no),[dt(r.date),r.site||""].filter(Boolean).join(" · "))).join("")}
+     ${!vs.length&&!ms.length&&!rs.length?'<small class="note">Hələ heç nə bağlanmayıb — buraya sürüşdürün.</small>':""}</div>`};
+  const LG=lsGet("sa.lklog",[]);
+  $("#main").innerHTML=`<div class="lk"><h2 class="sec">Əlaqələndirmə</h2><p class="hint">Hesabat, təklif və qaimə fərqli vaxtda hazırlandığı üçün qarışa bilər. Aşağıdakı <b>bağlanmamış</b> qaiməni, anbardan verilən malı və ya servis sənədini təklifin üzərinə <b>sürüşdürün</b> (telefonda barmağı bir az saxlayıb sürüşdürün) və ya “Bağla…” düyməsini basın. Yaşıl təklif — proqramın müştəri adı, tarix, məbləğ və mallara görə tapdığı ən uyğun sənəddir.</p>
+   <div class="actions" style="align-items:center"><input id="lkQ" type="search" placeholder="Axtar: müştəri, nömrə…" value="${esc(S.q)}" style="flex:1;min-width:180px"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="lkOnly" ${S.only?"checked":""} style="width:auto;min-height:0">Yalnız bağlanmamışı olan müştərilər</label>
+    <button type="button" class="btn" id="lkAuto"${sg.length?"":" disabled"}>Avtomatik təklif${sg.length?" ("+sg.length+")":""}</button><button type="button" class="btn" id="lkLog">Tarixçə${LG.length?" ("+LG.length+")":""}</button><button type="button" class="btn" id="lkMap">Əlaqələr sxemi</button></div>
+   ${S.log?`<div class="card" style="margin-top:8px"><h3>Dəyişiklik tarixçəsi</h3>${LG.length?LG.slice(0,40).map((l,i)=>`<div class="row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding:6px 0"><small class="note">${new Date(l.at).toLocaleString("az")} · ${esc(l.by||"")}</small><span>${esc(l.what)}</span><span style="flex:1"></span>${l.steps&&l.steps.length?`<button type="button" class="btn sm" data-lkundo="${i}">Geri qaytar</button>`:""}</div>`).join(""):'<p class="note" style="margin:0">Hələ dəyişiklik yoxdur.</p>'}</div>`:""}
+   <div class="card" style="margin-top:10px"><h3>Bağlanmamışlar <small class="note">(${Un.length})</small></h3>
+    ${[["Qaimələr",unF.filter(x=>x.t==="v")],["Anbardan verilən mallar",unF.filter(x=>x.t==="m")],["Servis sənədləri",unF.filter(x=>x.t==="s")]].map(([t,L])=>L.length?`<h4 style="margin:8px 0 2px">${t} (${L.length})</h4>${rowsOf(D,L)}`:"").join("")||'<p class="note" style="margin:0">Hər şey bağlanıb.</p>'}</div>
+   <h3 style="margin:14px 0 4px">Sənədlər</h3>
+   ${list.length?list.map(({k,g,un})=>{const op=S.open.has(k)||((un||!!Q)&&!S.shut.has(k));return `<details data-lkc="${esc(k)}"${op?" open":""}><summary style="cursor:pointer;padding:6px 0"><b>${esc(g.name)}</b> <small class="note">${g.qs.length} sənəd</small>${un?' <span class="chip warn">bağlanmamış var</span>':""}</summary>${op?g.qs.sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(qCard).join(""):""}</details>`}).join(""):'<div class="empty"><h3>Heç nə tapılmadı</h3><p>Axtarışı dəyişin və ya filtri söndürün.</p></div>'}
+   <div id="lkFree">⤓ Buraya buraxın — əlaqəni ayır</div></div>`;
+  const q=$("#lkQ");q.oninput=()=>{S.q=q.value;const p=q.selectionStart;renderLk();const n=$("#lkQ");n.focus();try{n.setSelectionRange(p,p)}catch(e){}};
+  $("#lkOnly").onchange=e=>{S.only=e.target.checked;renderLk()};$("#lkLog").onclick=()=>{S.log=!S.log;renderLk()};$("#lkMap").onclick=()=>go("map");
+  document.querySelectorAll(".lk details[data-lkc]>summary").forEach(sm=>sm.onclick=e=>{e.preventDefault();const d=sm.parentNode,k=d.dataset.lkc;if(d.open){S.open.delete(k);S.shut.add(k)}else{S.open.add(k);S.shut.delete(k)}const y=window.scrollY;renderLk();window.scrollTo(0,y)});
+  document.querySelectorAll("[data-lkopen]").forEach(b=>b.onclick=()=>openQuote(b.dataset.lkopen));
+  document.querySelectorAll("[data-lkpick]").forEach(b=>b.onclick=()=>pick(b.dataset.lkpick));
+  document.querySelectorAll("[data-lksg]").forEach(b=>b.onclick=async e=>{e.stopPropagation();const [k,id]=b.dataset.lksg.split("|");const D2=scan();registerGroups(D2);const it=itemInfo(D2,k);if(it&&await apply(D2,it,{t:"q",id}))renderLk()});
+  document.querySelectorAll("[data-lkundo]").forEach(b=>b.onclick=async()=>{const l=LG[+b.dataset.lkundo];if(!l)return;if(!confirm("Geri qaytarılsın: "+l.what+"?"))return;
+    try{for(const st of l.steps)if(!await stepRun(st))return;await sync();const L2=lsGet("sa.lklog",[]);L2.splice(+b.dataset.lkundo,1);lsSet("sa.lklog",L2);logAdd("Geri qaytarıldı: "+l.what,null);toast("Geri qaytarıldı");renderLk()}catch(e){toast(msgOf(e),6000)}});
+  $("#lkAuto").onclick=()=>autoPanel(D,sg)}
+
+/* “Bağla…” — uyğunluğa görə sıralanmış siyahıdan seçmək */
+function overlay(html){const o=document.createElement("div");o.className="lkov";o.innerHTML=`<div>${html}</div>`;o.onclick=e=>{if(e.target===o)o.remove()};document.body.appendChild(o);return o}
+function pick(key){const D=scan();registerGroups(D);const it=itemInfo(D,key);if(!it)return;let Q="";
+  const o=overlay("");const draw=()=>{const C=candidates(D,it).filter(c=>!Q||norm([c.q.no,c.q.client,c.q.svc].join(" ")).includes(norm(Q))).slice(0,40);
+    const V=it.t==="m"||it.t==="s"?D.invs.filter(v=>v.status!=="draft"&&(!Q||norm([v.no,v.supplier].join(" ")).includes(norm(Q)))).map(v=>({v,sc:score(it,{client:v.supplier,date:v.date,total:saInvTotals(v).total,id:"-"})})).sort((a,b)=>b.sc-a.sc).slice(0,15):[];
+    o.firstChild.innerHTML=`<h3 style="margin:0 0 6px">${esc(it.label)} — haraya bağlansın?</h3><input id="lkPQ" type="search" placeholder="Axtar: müştəri, nömrə…" value="${esc(Q)}" style="width:100%"><div id="lkPL">
+     ${C.map(c=>`<div class="row"><div style="flex:1"><b>${esc(c.q.no||"")}</b> <small class="note">${esc([isSvc(c.q)?"servis":"satış",dt(c.q.date),c.q.client,AZN(saNum(c.q.total))].filter(Boolean).join(" · "))}</small></div>${c.sc?`<span class="chip ${c.sc>=60?"sg":""}">${c.sc}%</span>`:""}<button class="btn sm pri" data-pq="${esc(c.q.id)}">Bağla</button></div>`).join("")}
+     ${V.length?'<h4 style="margin:10px 0 2px">Qaimələr</h4>':""}${V.map(c=>`<div class="row"><div style="flex:1"><b>Qaimə ${esc(c.v.no||"")}</b> <small class="note">${esc([dt(c.v.date),c.v.supplier,AZN(saInvTotals(c.v).total)].filter(Boolean).join(" · "))}</small></div>${c.sc?`<span class="chip">${c.sc}%</span>`:""}<button class="btn sm pri" data-pv="${esc(c.v.id)}">Bağla</button></div>`).join("")}</div>
+     <div class="actions" style="margin-top:10px"><button class="btn" id="lkPX">Bağla</button></div>`;
+    const qi=o.querySelector("#lkPQ");qi.oninput=()=>{Q=qi.value;const p=qi.selectionStart;draw();const n=o.querySelector("#lkPQ");n.focus();try{n.setSelectionRange(p,p)}catch(e){}};
+    o.querySelector("#lkPX").textContent="Bağla";o.querySelector("#lkPX").onclick=()=>o.remove();o.querySelector("#lkPX").textContent="Bağla";
+    o.querySelectorAll("[data-pq]").forEach(b=>b.onclick=async()=>{o.remove();const D2=scan();registerGroups(D2);const it2=itemInfo(D2,key);if(it2&&await apply(D2,it2,{t:"q",id:b.dataset.pq}))renderLk()});
+    o.querySelectorAll("[data-pv]").forEach(b=>b.onclick=async()=>{o.remove();const D2=scan();registerGroups(D2);const it2=itemInfo(D2,key);if(it2&&await apply(D2,it2,{t:"v",id:b.dataset.pv}))renderLk()})};
+  draw()}
+
+/* avtomatik təklif: proqram uyğun olanları tapır, siz seçib təsdiqləyirsiniz */
+function autoPanel(D,sg){const o=overlay("");
+  o.firstChild.innerHTML=`<h3 style="margin:0 0 6px">Avtomatik təklif</h3><p class="note" style="margin:0 0 6px">Müştəri adı, tarix, məbləğ və mallara görə tapılan uyğunluqlar. Yoxlayın, səhv olanın işarəsini götürün.</p>
+   ${sg.map(({it,b},i)=>`<label class="row" style="cursor:pointer"><input type="checkbox" data-ai="${i}" ${b.sc>=70?"checked":""} style="width:auto;min-height:0"><div style="flex:1"><b>${esc(it.label)}</b> <small class="note">${esc([dt(it.date),it.party].filter(Boolean).join(" · "))}</small><br>→ <b>${esc(b.q.no)}</b> <small class="note">${esc([dt(b.q.date),b.q.client,AZN(saNum(b.q.total))].join(" · "))}</small></div><span class="chip sg">${b.sc}%</span></label>`).join("")}
+   <div class="actions" style="margin-top:10px"><button class="btn pri" id="aiGo">Seçilənləri tətbiq et</button><button class="btn" id="aiX">Bağla</button></div><p class="note" id="aiMsg"></p>`;
+  o.querySelector("#aiX").onclick=()=>o.remove();
+  o.querySelector("#aiGo").onclick=async()=>{const ch=[...o.querySelectorAll("[data-ai]:checked")].map(c=>sg[+c.dataset.ai]);if(!ch.length)return;let n=0;const msg=o.querySelector("#aiMsg");
+    for(const x of ch){msg.textContent="Bağlanır… "+(n+1)+" / "+ch.length;const D2=scan();registerGroups(D2);const it=itemInfo(D2,x.it.key.startsWith("m:")?"m:"+(D2.groups.find(g=>g.key===x.it.id)||{}).rid:x.it.key);if(!it)continue;if(await apply(D2,it,{t:"q",id:x.b.q.id},{quiet:true}))n++}
+    o.remove();toast(n+" sənəd bağlandı");renderLk()}}
+
+/* ===== sürüşdürmə ===== */
+let DR=null,dragged=false;
+const parseKey=a=>{const [t,...r]=String(a||"").split(":");return {t,id:r.join(":")}};
+function canDrop(D,it,tg){if(tg.t==="free")return true;
+  if(tg.t==="q"){const q=D.qById[tg.id];if(!q||isBin(q))return false;if(it.t==="v")return !D.invQ(it.v).includes(q.id);if(it.t==="m")return it.g.quoteId!==q.id&&q.status!=="draft"&&q.status!=="rejected";if(it.t==="s")return !isSvc(q)&&!(q.reps||[]).includes(it.id)}
+  if(tg.t==="v"){const v=D.vById[tg.id];if(!v||v.status==="draft")return false;if(it.t==="m")return it.g.invoiceId!==v.id;if(it.t==="s")return true}return false}
+function targetAt(x,y){const el=document.elementFromPoint(x,y);if(!el)return null;const f=el.closest("#lkFree");if(f)return {el:f,t:"free",id:""};const v=el.closest(".lk-v[data-lkv]");if(v)return {el:v,t:"v",id:v.dataset.lkv};const q=el.closest(".lk-q[data-lkq]");return q?{el:q,t:"q",id:q.dataset.lkq}:null}
+function clear(){document.querySelectorAll(".lk-ok,.lk-hot,.lk-drag").forEach(e=>e.classList.remove("lk-ok","lk-hot","lk-drag"));const g=document.getElementById("lkGhost");if(g)g.remove();const f=document.getElementById("lkFree");if(f)f.classList.remove("on")}
+function startDrag(){if(!DR)return;DR.on=true;clear();DR.n.classList.add("lk-drag");document.body.insertAdjacentHTML("beforeend",`<div id="lkGhost">↔ ${esc(DR.it.label)}</div>`);
+  const f=document.getElementById("lkFree");if(f)f.classList.add("on");
+  document.querySelectorAll(".lk .lk-q[data-lkq],.lk .lk-v[data-lkv]").forEach(x=>{const tg=x.dataset.lkq?{t:"q",id:x.dataset.lkq}:{t:"v",id:x.dataset.lkv};if(canDrop(DR.D,DR.it,tg))x.classList.add("lk-ok")});
+  try{navigator.vibrate&&navigator.vibrate(15)}catch(e){}moveG(DR.x,DR.y)}
+function moveG(x,y){const g=document.getElementById("lkGhost");if(g){g.style.left=Math.min(Math.max(x,60),innerWidth-60)+"px";g.style.top=y+"px"}document.querySelectorAll(".lk-hot").forEach(e=>e.classList.remove("lk-hot"));const T=targetAt(x,y);if(T&&canDrop(DR.D,DR.it,T))T.el.classList.add("lk-hot")}
+function pDown(e){if(state.view!=="relink"||e.button>0)return;const n=e.target.closest&&e.target.closest(".lk .lk-it[data-lk]");if(!n||(e.target.closest&&e.target.closest("button,a,input,select,.chip")))return;
+  const D=scan();registerGroups(D);const it=itemInfo(D,n.dataset.lk);if(!it)return;
+  DR={n,it,D,x:e.clientX,y:e.clientY,on:false,id:e.pointerId,touch:e.pointerType!=="mouse",t:setTimeout(()=>{if(DR&&!DR.on&&DR.touch)startDrag()},420)}}
+function pMove(e){if(!DR||e.pointerId!==DR.id)return;const dx=e.clientX-DR.x,dy=e.clientY-DR.y;
+  if(!DR.on){if(DR.touch){if(Math.hypot(dx,dy)>10){clearTimeout(DR.t);DR=null}return}if(Math.hypot(dx,dy)>8)startDrag();else return}
+  e.preventDefault();moveG(e.clientX,e.clientY);const ym=e.clientY<110?-12:e.clientY>innerHeight-150?12:0;if(ym)window.scrollBy(0,ym)}
+async function pUp(e){if(!DR||e.pointerId!==DR.id)return;clearTimeout(DR.t);const d=DR;DR=null;if(!d.on)return;dragged=true;setTimeout(()=>{dragged=false},350);const T=targetAt(e.clientX,e.clientY);clear();
+  if(T&&canDrop(d.D,d.it,T)){if(await apply(d.D,d.it,{t:T.t,id:T.id}))renderLk()}else toast("Bura bağlamaq olmaz — işıqlanan sənədlərin üzərinə buraxın")}
+
+/* ===== silinən təklif / hesabatın bağlı sənədləri silinmir; bərpa ediləndə yenidən bağlanır ===== */
+function snapLinks(id){const D=scan();const q=D.qById[id]||rec(id);if(!q)return null;registerGroups(D);
+  const s={no:q.no||"",at:Date.now(),inv:D.invs.filter(v=>D.invQ(v).includes(id)).map(v=>v.id),mv:D.groups.filter(g=>g.quoteId===id).flatMap(g=>g.ids),reps:(q.reps||[]).slice(),inRep:D.repOf[id]||[]};
+  return s}
+const _dl=delQuoteLocal;
+delQuoteLocal=function(id,pwh){let s=null;try{s=snapLinks(id)}catch(e){}const r=_dl.apply(this,arguments);
+  try{if(s&&(s.inv.length||s.mv.length||s.reps.length||s.inRep.length)){const A=snapGet();A[id]=s;const K=Object.keys(A).sort((a,b)=>A[b].at-A[a].at).slice(0,60),B={};K.forEach(k=>B[k]=A[k]);lsSet("sa.lkSnap",B);
+      toast((s.no||"Sənəd")+" silindi. Bağlı "+[s.inv.length?s.inv.length+" qaimə":"",s.mv.length?s.mv.length+" mal sətri":"",(s.reps.length+s.inRep.length)?(s.reps.length+s.inRep.length)+" hesabat":""].filter(Boolean).join(", ")+" silinmədi — “Əlaqələndirmə”də bağlanmamış görünür, bərpa edəndə yenidən bağlanır",8000)}}catch(e){}
+  return r};
+const _rl=restoreQuoteLocal;
+restoreQuoteLocal=function(id){const r=_rl.apply(this,arguments);
+  (async()=>{try{const sn=snapGet()[id];if(!sn)return;await new Promise(x=>setTimeout(x,600));try{await flush()}catch(e){}try{await sync()}catch(e){}
+    const D=scan();let n=0;
+    for(const vid of sn.inv){const v=D.vById[vid];if(v&&!D.invQ(v).includes(id)){try{await run("relinkSaleInvoice",{id:vid,quoteId:id,mode:D.invQ(v).length?"add":"replace"});n++}catch(e){}}}
+    const live=new Set((state.moves||[]).filter(m=>!m.del&&sn.mv.includes(m.id)&&m.quoteId!==id).map(m=>m.id));if(live.size&&await relinkMoves([...live],id,"",true))n+=live.size;
+    for(const rid of sn.reps){try{await run("setQuoteRep",{id,recId:rid,on:true});n++}catch(e){}}
+    for(const sid of sn.inRep){try{await run("setQuoteRep",{id:sid,recId:id,on:true});n++}catch(e){}}
+    const A=snapGet();delete A[id];lsSet("sa.lkSnap",A);try{await sync()}catch(e){}if(n){toast("Bağlı sənədlər yenidən bağlandı ("+n+")");logAdd("Bərpa: "+sn.no+" — bağlı sənədlər qaytarıldı",null)}if(state.view==="relink")renderLk()}catch(e){console.log("sa-lk restore",e)}})();
+  return r};
+
+/* ===== menyu və səhifə ===== */
+const _gs=grpSubs;
+grpSubs=function(raw){const R=_gs.call(this,true);let ok=false;try{ok=gate()}catch(e){}
+  if(ok){const e=R.find(x=>x[0]==="sale");if(e&&!e[1].some(x=>x[0]==="relink"))e[1].push(["relink","Əlaqələndirmə"])}
+  if(raw)return R;
+  const M=MENU.get();if(M.ord.length)R.sort((a,b)=>{const i=M.ord.indexOf(a[0]),j=M.ord.indexOf(b[0]);return (i<0?99:i)-(j<0?99:j)});
+  const F=R.filter(([g])=>!M.hide.has("g:"+g)).map(([g,L])=>[g,L.filter(x=>!M.hide.has(x[0]))]).filter(([g,L])=>L.length);return F.length?F:R};
+const _rn=render;render=function(){if(state.view==="relink"){header();return renderLk()}return _rn.apply(this,arguments)};
+document.addEventListener("pointerdown",pDown);document.addEventListener("pointermove",pMove,{passive:false});document.addEventListener("pointerup",pUp);
+document.addEventListener("pointercancel",()=>{if(DR){clearTimeout(DR.t);DR=null;clear()}});
+document.addEventListener("click",e=>{if(dragged&&e.target.closest&&e.target.closest(".lk")){e.preventDefault();e.stopPropagation()}},true);
+document.addEventListener("contextmenu",e=>{if(DR&&DR.on)e.preventDefault()});
+window.saLk={scan,score,best,itemInfo,apply,relinkMoves};
+}catch(e){console.log("sa-lk",e)}})();
 
 </script>
 </body>
